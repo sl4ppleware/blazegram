@@ -1,0 +1,58 @@
+[package]
+name = "blazegram"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Telegram bot framework: clean chats, zero garbage, declarative screens, pure Rust MTProto."
+repository = "https://github.com/slappleware/blazegram"
+homepage = "https://github.com/slappleware/blazegram"
+documentation = "https://docs.rs/blazegram"
+keywords = ["telegram", "bot", "mtproto", "grammers", "framework"]
+categories = ["network-programming", "api-bindings"]
+readme = "README.md"
+exclude = ["examples/test_bot.rs", "*.session", ".env"]
+
+[dependencies]
+# Core
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
+tracing = "0.1"
+dashmap = "6"
+anyhow = "1"
+
+# MTProto transport (grammers)
+grammers-client = { version = "0.9", features = ["html", "markdown"] }
+grammers-session = "0.9"
+grammers-mtsender = "0.9"
+grammers-tl-types = { version = "0.9", features = ["tl-mtproto"] }
+
+# SQLite store (no bundled — grammers-session already bundles sqlite via libsql)
+rusqlite = { version = "0.34" }
+
+# Serialization
+bincode = "1"
+
+# Base64 for inline message ID decoding
+data-encoding = "2"
+
+# Shutdown
+tokio-util = "0.7"
+
+# Optional: Redis store
+deadpool-redis = { version = "0.18", optional = true }
+redis = { version = "0.27", features = ["tokio-comp"], optional = true }
+
+[features]
+default = []
+redis = ["dep:deadpool-redis", "dep:redis"]
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
