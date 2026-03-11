@@ -13,13 +13,18 @@ use crate::types::*;
 
 /// Test harness for Blazegram bots.
 pub struct TestApp {
+    /// The mock bot API instance.
     pub bot: Arc<MockBotApi>,
+    /// The state store backing this test app.
     pub store: Arc<dyn StateStore>,
+    /// The router with registered handlers.
     pub router: Arc<Router>,
+    /// Per-chat serializer for sequential processing.
     pub serializer: Arc<ChatSerializer>,
 }
 
 impl TestApp {
+    /// Open or create a redb database at the given path.
     pub fn new(router: Router) -> Self {
         let store: Arc<dyn StateStore> = Arc::new(InMemoryStore::new());
         let bot = Arc::new(MockBotApi::new());
@@ -34,63 +39,83 @@ impl TestApp {
 
     /// Simulate a text message from a user.
     pub async fn send_message(&self, chat_id: i64, text: &str) -> HandlerResult {
-        let update = IncomingUpdate::Message {
-            message_id: MessageId(self.bot.next_id()),
+        let msg_id = MessageId(self.bot.next_id());
+        let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
             user: test_user(),
-            text: Some(text.to_string()),
+            message_id: Some(msg_id),
+            kind: UpdateKind::Message {
+                text: Some(text.to_string()),
+            },
         };
         self.process(update).await
     }
 
     /// Simulate a callback button press.
     pub async fn send_callback(&self, chat_id: i64, data: &str) -> HandlerResult {
-        let update = IncomingUpdate::CallbackQuery {
-            id: format!("cb_{}", self.bot.next_id()),
+        let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
             user: test_user(),
-            data: Some(data.to_string()),
             message_id: Some(MessageId(1)),
-            inline_message_id: None,
+            kind: UpdateKind::CallbackQuery {
+                id: format!("cb_{}", self.bot.next_id()),
+                data: Some(data.to_string()),
+                inline_message_id: None,
+            },
         };
         self.process(update).await
     }
 
     /// Simulate a photo message.
-    pub async fn send_photo(&self, chat_id: i64, file_id: &str, caption: Option<&str>) -> HandlerResult {
-        let update = IncomingUpdate::Photo {
-            message_id: MessageId(self.bot.next_id()),
+    pub async fn send_photo(
+        &self,
+        chat_id: i64,
+        file_id: &str,
+        caption: Option<&str>,
+    ) -> HandlerResult {
+        let msg_id = MessageId(self.bot.next_id());
+        let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
             user: test_user(),
-            file_id: file_id.to_string(),
-            file_unique_id: file_id.to_string(),
-            caption: caption.map(String::from),
+            message_id: Some(msg_id),
+            kind: UpdateKind::Photo {
+                file_id: file_id.to_string(),
+                file_unique_id: file_id.to_string(),
+                caption: caption.map(String::from),
+            },
         };
         self.process(update).await
     }
 
     /// Simulate a document message.
-    pub async fn send_document(&self, chat_id: i64, file_id: &str, filename: Option<&str>) -> HandlerResult {
-        let update = IncomingUpdate::Document {
-            message_id: MessageId(self.bot.next_id()),
+    pub async fn send_document(
+        &self,
+        chat_id: i64,
+        file_id: &str,
+        filename: Option<&str>,
+    ) -> HandlerResult {
+        let msg_id = MessageId(self.bot.next_id());
+        let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
             user: test_user(),
-            file_id: file_id.to_string(),
-            file_unique_id: file_id.to_string(),
-            filename: filename.map(String::from),
-            caption: None,
+            message_id: Some(msg_id),
+            kind: UpdateKind::Document {
+                file_id: file_id.to_string(),
+                file_unique_id: file_id.to_string(),
+                filename: filename.map(String::from),
+                caption: None,
+            },
         };
         self.process(update).await
     }
 
     async fn process(&self, incoming: IncomingUpdate) -> HandlerResult {
-        let chat_id = incoming.chat_id();
-        let user = incoming.user().clone();
+        let chat_id = incoming.chat_id;
+        let user = incoming.user.clone();
         let router = self.router.clone();
         let bot = self.bot.clone();
         let incoming2 = incoming.clone();
 
-        // Use a channel to propagate handler errors back to the caller
         let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<HandlerError>>();
 
         self.serializer
@@ -100,23 +125,25 @@ impl TestApp {
                 let incoming = incoming2.clone();
 
                 async move {
-                    let cb_data = match &incoming {
-                        IncomingUpdate::CallbackQuery { data, .. } => data.clone(),
+                    let cb_data = match &incoming.kind {
+                        UpdateKind::CallbackQuery { data, .. } => data.clone(),
                         _ => None,
                     };
                     let mut ctx = Ctx::new(state, bot.clone(), cb_data);
-                    match &incoming {
-                        IncomingUpdate::Message { text, message_id, .. } => {
-                            ctx.message_text = text.clone();
-                            ctx.incoming_message_id = Some(*message_id);
+                    match &incoming.kind {
+                        UpdateKind::Message { .. } => {
+                            ctx.message_text = match &incoming.kind {
+                                UpdateKind::Message { text, .. } => text.clone(),
+                                _ => None,
+                            };
+                            ctx.incoming_message_id = incoming.message_id;
                         }
-                        IncomingUpdate::CallbackQuery { id, message_id, .. } => {
+                        UpdateKind::CallbackQuery { id, .. } => {
                             ctx.state.pending_callback_id = Some(id.clone());
-                            ctx.incoming_message_id = *message_id;
+                            ctx.incoming_message_id = incoming.message_id;
                         }
-                        IncomingUpdate::Photo { message_id, .. }
-                        | IncomingUpdate::Document { message_id, .. } => {
-                            ctx.incoming_message_id = Some(*message_id);
+                        UpdateKind::Photo { .. } | UpdateKind::Document { .. } => {
+                            ctx.incoming_message_id = incoming.message_id;
                         }
                         _ => {}
                     }

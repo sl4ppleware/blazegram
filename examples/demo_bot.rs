@@ -2,7 +2,7 @@
 //!
 //! Run:  BOT_TOKEN=123:xxx cargo run --example demo_bot
 
-use blazegram::prelude::*;
+use blazegram::{handler, prelude::*};
 
 #[tokio::main]
 async fn main() {
@@ -11,34 +11,34 @@ async fn main() {
 
     App::builder(&token)
         .session_file("demo_bot.session")
-        .command("start", |ctx| Box::pin(async move {
+        .command("start", handler!(ctx => {
             ctx.navigate(main_menu(&ctx.user.first_name)).await
         }))
-        .command("help", |ctx| Box::pin(async move {
+        .command("help", handler!(ctx => {
             ctx.navigate(
                 Screen::text("help", "Commands:\n/start — main menu\n/help — this message")
                     .keyboard(|kb| kb.nav_back("menu"))
                     .build()
             ).await
         }))
-        .callback("menu", |ctx| Box::pin(async move {
+        .callback("menu", handler!(ctx => {
             ctx.navigate(main_menu(&ctx.user.first_name)).await
         }))
-        .callback("counter", |ctx| Box::pin(async move {
+        .callback("counter", handler!(ctx => {
             let n: i64 = ctx.get("counter").unwrap_or(0);
             ctx.navigate(counter_screen(n)).await
         }))
-        .callback("inc", |ctx| Box::pin(async move {
+        .callback("inc", handler!(ctx => {
             let n: i64 = ctx.get("counter").unwrap_or(0) + 1;
             ctx.set("counter", &n);
             ctx.navigate(counter_screen(n)).await
         }))
-        .callback("dec", |ctx| Box::pin(async move {
+        .callback("dec", handler!(ctx => {
             let n: i64 = ctx.get("counter").unwrap_or(0) - 1;
             ctx.set("counter", &n);
             ctx.navigate(counter_screen(n)).await
         }))
-        .callback("ask_name", |ctx| Box::pin(async move {
+        .callback("ask_name", handler!(ctx => {
             ctx.navigate(
                 Screen::text("ask_name", "What's your name?")
                     .expect_text()
@@ -51,7 +51,7 @@ async fn main() {
                     .build()
             ).await
         }))
-        .callback("about", |ctx| Box::pin(async move {
+        .callback("about", handler!(ctx => {
             ctx.navigate(
                 Screen::text("about", "\
                     <b>Blazegram v0.3.0</b>\n\n\
@@ -64,7 +64,7 @@ async fn main() {
                     .build()
             ).await
         }))
-        .on_input("ask_name", |ctx, text| Box::pin(async move {
+        .on_input("ask_name", handler!(ctx, text => {
             ctx.navigate(
                 Screen::text("greeted", format!("Hello, <b>{}</b>!", blazegram::markup::escape(&text)))
                     .keyboard(|kb| kb.nav_back("menu"))
@@ -76,21 +76,31 @@ async fn main() {
 }
 
 fn main_menu(name: &str) -> Screen {
-    Screen::text("menu", format!(
-        "<b>Hello, {}!</b>\n\nPick an action:",
-        blazegram::markup::escape(name)
-    ))
-    .keyboard(|kb| kb
-        .button_row("Counter", "counter")
-        .button_row("Text input", "ask_name")
-        .button_row("About", "about"))
+    Screen::text(
+        "menu",
+        format!(
+            "<b>Hello, {}!</b>\n\nPick an action:",
+            blazegram::markup::escape(name)
+        ),
+    )
+    .keyboard(|kb| {
+        kb.button_row("Counter", "counter")
+            .button_row("Text input", "ask_name")
+            .button_row("About", "about")
+    })
     .build()
 }
 
 fn counter_screen(n: i64) -> Screen {
-    Screen::text("counter", format!("<b>Counter</b>\n\nValue: <code>{n}</code>"))
-        .keyboard(|kb| kb
-            .button("-1", "dec").button("+1", "inc").row()
-            .nav_back("menu"))
-        .build()
+    Screen::text(
+        "counter",
+        format!("<b>Counter</b>\n\nValue: <code>{n}</code>"),
+    )
+    .keyboard(|kb| {
+        kb.button("-1", "dec")
+            .button("+1", "inc")
+            .row()
+            .nav_back("menu")
+    })
+    .build()
 }

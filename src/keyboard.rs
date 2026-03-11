@@ -3,8 +3,13 @@ use std::hash::{Hash, Hasher};
 
 use crate::i18n::ft;
 
+/// An inline keyboard attached below a message.
+///
+/// Build one with [`KeyboardBuilder`] (usually via the `.keyboard()` closure
+/// on screen builders).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineKeyboard {
+    /// Rows of buttons (outer = rows, inner = buttons in a row).
     pub rows: Vec<Vec<InlineButton>>,
 }
 
@@ -18,22 +23,40 @@ impl Hash for InlineKeyboard {
     }
 }
 
+/// A single inline keyboard button.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct InlineButton {
+    /// Label displayed on the button.
     pub text: String,
+    /// What happens when the button is pressed.
     pub action: ButtonAction,
 }
 
+/// What an [`InlineButton`] does when pressed.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub enum ButtonAction {
+    /// Send a callback query with this data string to the bot.
     Callback(String),
+    /// Open a URL in the user’s browser.
     Url(String),
+    /// Open a [Web App](https://core.telegram.org/bots/webapps).
     WebApp(String),
-    SwitchInline { query: String, current_chat: bool },
+    /// Prompt the user to choose a chat and insert an inline query.
+    SwitchInline {
+        /// Pre-filled inline query text.
+        query: String,
+        /// If `true`, insert in the current chat instead of choosing.
+        current_chat: bool,
+    },
 }
 
 // ─── Builder ───
 
+/// Fluent builder for constructing an [`InlineKeyboard`].
+///
+/// Buttons are added to the "current row". Call [`.row()`](Self::row) to
+/// start a new row, or use [`.button_row()`](Self::button_row) for
+/// single-button rows.
 pub struct KeyboardBuilder {
     rows: Vec<Vec<InlineButton>>,
     current_row: Vec<InlineButton>,
@@ -41,13 +64,22 @@ pub struct KeyboardBuilder {
 }
 
 impl KeyboardBuilder {
+    /// Create a new builder with default language (`"en"`).
     pub fn new() -> Self {
-        Self { rows: Vec::new(), current_row: Vec::new(), lang: "en".into() }
+        Self {
+            rows: Vec::new(),
+            current_row: Vec::new(),
+            lang: "en".into(),
+        }
     }
 
     /// Create a builder with a specific language for framework labels.
     pub fn with_lang(lang: impl Into<String>) -> Self {
-        Self { rows: Vec::new(), current_row: Vec::new(), lang: lang.into() }
+        Self {
+            rows: Vec::new(),
+            current_row: Vec::new(),
+            lang: lang.into(),
+        }
     }
 
     /// Add callback button to current row.
@@ -81,16 +113,26 @@ impl KeyboardBuilder {
     pub fn switch_inline(mut self, text: impl Into<String>, query: impl Into<String>) -> Self {
         self.current_row.push(InlineButton {
             text: text.into(),
-            action: ButtonAction::SwitchInline { query: query.into(), current_chat: false },
+            action: ButtonAction::SwitchInline {
+                query: query.into(),
+                current_chat: false,
+            },
         });
         self
     }
 
     /// Add switch-inline-current-chat button.
-    pub fn switch_inline_current(mut self, text: impl Into<String>, query: impl Into<String>) -> Self {
+    pub fn switch_inline_current(
+        mut self,
+        text: impl Into<String>,
+        query: impl Into<String>,
+    ) -> Self {
         self.current_row.push(InlineButton {
             text: text.into(),
-            action: ButtonAction::SwitchInline { query: query.into(), current_chat: true },
+            action: ButtonAction::SwitchInline {
+                query: query.into(),
+                current_chat: true,
+            },
         });
         self
     }
@@ -167,6 +209,9 @@ impl KeyboardBuilder {
             .row()
     }
 
+    /// Consume the builder and produce an [`InlineKeyboard`].
+    ///
+    /// Any buttons remaining in the current row are flushed automatically.
     pub fn build(mut self) -> InlineKeyboard {
         if !self.current_row.is_empty() {
             self.rows.push(self.current_row);

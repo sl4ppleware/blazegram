@@ -1,12 +1,12 @@
 [package]
 name = "blazegram"
-version = "0.3.0"
-edition = "2021"
-rust-version = "1.75"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 description = "Telegram bot framework: clean chats, zero garbage, declarative screens, pure Rust MTProto."
-repository = "https://github.com/slappleware/blazegram"
-homepage = "https://github.com/slappleware/blazegram"
+repository = "https://github.com/sl4ppleware/blazegram"
+homepage = "https://github.com/sl4ppleware/blazegram"
 documentation = "https://docs.rs/blazegram"
 keywords = ["telegram", "bot", "mtproto", "grammers", "framework"]
 categories = ["network-programming", "api-bindings"]
@@ -26,15 +26,15 @@ anyhow = "1"
 
 # MTProto transport (grammers)
 grammers-client = { version = "0.9", features = ["html", "markdown"] }
-grammers-session = "0.9"
+grammers-session = { version = "0.9", default-features = false, features = ["serde"] }
 grammers-mtsender = "0.9"
 grammers-tl-types = { version = "0.9", features = ["tl-mtproto"] }
 
-# SQLite store (no bundled — grammers-session already bundles sqlite via libsql)
-rusqlite = { version = "0.34" }
+# Persistent store — pure Rust, zero C deps, no SQLite conflicts
+redb = { version = "2", optional = true }
 
 # Serialization
-bincode = "1"
+postcard = { version = "1", features = ["alloc"] }
 
 # Base64 for inline message ID decoding
 data-encoding = "2"
@@ -42,17 +42,26 @@ data-encoding = "2"
 # Shutdown
 tokio-util = "0.7"
 
+# RNG (replaces hand-rolled rand)
+fastrand = "2"
+
 # Optional: Redis store
 deadpool-redis = { version = "0.18", optional = true }
 redis = { version = "0.27", features = ["tokio-comp"], optional = true }
 
 [features]
-default = []
+default = ["redb"]
+redb = ["dep:redb"]
 redis = ["dep:deadpool-redis", "dep:redis"]
 
 [dev-dependencies]
 tracing-subscriber = "0.3"
+tempfile = "3"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[bench]]
+name = "differ"
+harness = false

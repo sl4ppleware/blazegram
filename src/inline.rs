@@ -49,15 +49,34 @@ pub enum InlineResultKind {
     /// Text article (most common).
     Article,
     /// Photo result.
-    Photo { url: String },
+    Photo {
+        /// Direct URL to the photo.
+        url: String,
+    },
     /// GIF animation.
-    Gif { url: String },
+    Gif {
+        /// Direct URL to the GIF.
+        url: String,
+    },
     /// Video result.
-    Video { url: String, mime: String },
+    Video {
+        /// Direct URL to the video.
+        url: String,
+        /// MIME type (e.g. `"video/mp4"`).
+        mime: String,
+    },
     /// Voice message.
-    Voice { url: String },
-    /// Document/file.
-    Document { url: String, mime: String },
+    Voice {
+        /// Direct URL to the OGG audio.
+        url: String,
+    },
+    /// Document / file.
+    Document {
+        /// Direct URL to the document.
+        url: String,
+        /// MIME type.
+        mime: String,
+    },
 }
 
 impl InlineResult {
@@ -77,9 +96,7 @@ impl InlineResult {
     pub fn photo(id: impl Into<String>, url: impl Into<String>) -> InlineResultBuilder {
         InlineResultBuilder {
             id: id.into(),
-            kind: InlineResultKind::Photo {
-                url: url.into(),
-            },
+            kind: InlineResultKind::Photo { url: url.into() },
             title: None,
             description: None,
             thumbnail_url: None,
@@ -91,9 +108,7 @@ impl InlineResult {
     pub fn gif(id: impl Into<String>, url: impl Into<String>) -> InlineResultBuilder {
         InlineResultBuilder {
             id: id.into(),
-            kind: InlineResultKind::Gif {
-                url: url.into(),
-            },
+            kind: InlineResultKind::Gif { url: url.into() },
             title: None,
             description: None,
             thumbnail_url: None,
@@ -124,9 +139,7 @@ impl InlineResult {
     pub fn voice(id: impl Into<String>, url: impl Into<String>) -> InlineResultBuilder {
         InlineResultBuilder {
             id: id.into(),
-            kind: InlineResultKind::Voice {
-                url: url.into(),
-            },
+            kind: InlineResultKind::Voice { url: url.into() },
             title: None,
             description: None,
             thumbnail_url: None,
@@ -432,15 +445,18 @@ mod tests {
             .build();
 
         assert_eq!(result.id, "p1");
-        assert!(matches!(result.kind, InlineResultKind::Photo { ref url } if url == "https://example.com/photo.jpg"));
+        assert!(
+            matches!(result.kind, InlineResultKind::Photo { ref url } if url == "https://example.com/photo.jpg")
+        );
     }
 
     #[test]
     fn builder_gif() {
-        let result = InlineResult::gif("g1", "https://example.com/cat.gif")
-            .build();
+        let result = InlineResult::gif("g1", "https://example.com/cat.gif").build();
 
-        assert!(matches!(result.kind, InlineResultKind::Gif { ref url } if url == "https://example.com/cat.gif"));
+        assert!(
+            matches!(result.kind, InlineResultKind::Gif { ref url } if url == "https://example.com/cat.gif")
+        );
     }
 
     #[test]

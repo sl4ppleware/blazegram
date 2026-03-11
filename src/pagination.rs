@@ -6,13 +6,18 @@ use crate::screen::Screen;
 use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configures how a list of items is split into pages.
 pub struct Paginator<T> {
+    /// The items on the current page.
     pub items: Vec<T>,
+    /// Page size.
     pub page_size: usize,
+    /// Current page.
     pub current_page: usize,
 }
 
 impl<T> Paginator<T> {
+    /// Open or create a redb database at the given path.
     pub fn new(items: Vec<T>, page_size: usize) -> Self {
         Self {
             items,
@@ -21,6 +26,7 @@ impl<T> Paginator<T> {
         }
     }
 
+    /// Total number of pages.
     pub fn total_pages(&self) -> usize {
         if self.items.is_empty() {
             return 1;
@@ -28,6 +34,7 @@ impl<T> Paginator<T> {
         self.items.len().div_ceil(self.page_size)
     }
 
+    /// Current items.
     pub fn current_items(&self) -> &[T] {
         let start = self.current_page * self.page_size;
         let end = (start + self.page_size).min(self.items.len());
@@ -37,14 +44,17 @@ impl<T> Paginator<T> {
         &self.items[start..end]
     }
 
+    /// Set page.
     pub fn set_page(&mut self, page: usize) {
         self.current_page = page.min(self.total_pages().saturating_sub(1));
     }
 
+    /// Has prev.
     pub fn has_prev(&self) -> bool {
         self.current_page > 0
     }
 
+    /// Has next.
     pub fn has_next(&self) -> bool {
         self.current_page + 1 < self.total_pages()
     }

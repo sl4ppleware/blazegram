@@ -6,21 +6,15 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use grammers_client::{
-    Client,
-    client::UpdatesConfiguration,
-    update::Update,
-    tl,
-};
+use crate::file_session::FileSession;
+use grammers_client::{Client, client::UpdatesConfiguration};
 use grammers_mtsender::SenderPool;
-use grammers_session::storages::SqliteSession;
-use grammers_session::types::PeerRef;
 
 use crate::bot_api::BotApi;
 use crate::ctx::Ctx;
 use crate::error::{HandlerError, HandlerResult};
 use crate::form::{Form, FormData};
-use crate::grammers_adapter::{GrammersAdapter, DEFAULT_API_ID, DEFAULT_API_HASH};
+use crate::grammers_adapter::{DEFAULT_API_HASH, DEFAULT_API_ID, GrammersAdapter};
 use crate::i18n::{self, I18n};
 use crate::metrics::metrics;
 use crate::middleware::Middleware;
@@ -28,9 +22,12 @@ use crate::router::Router;
 use crate::serializer::ChatSerializer;
 use crate::state::{InMemoryStore, StateStore};
 use crate::types::*;
+use crate::update_parser::convert_update;
 
+/// A fully configured and running bot application.
 pub struct App;
 
+/// Fluent builder for configuring and launching an [`App`].
 pub struct AppBuilder {
     token: String,
     api_id: i32,
@@ -44,11 +41,13 @@ pub struct AppBuilder {
     on_error: Option<Arc<ErrorHandler>>,
     snapshot_path: Option<String>,
     snapshot_interval: std::time::Duration,
+    max_state_keys: usize,
 }
 
 type ErrorHandler = dyn Fn(ChatId, HandlerError) + Send + Sync;
 
 impl App {
+    /// Create a new bot application builder with the given token.
     pub fn builder(token: impl Into<String>) -> AppBuilder {
         AppBuilder {
             token: token.into(),
@@ -63,6 +62,7 @@ impl App {
             on_error: None,
             snapshot_path: None,
             snapshot_interval: std::time::Duration::from_secs(300),
+            max_state_keys: 1000,
         }
     }
 }
@@ -81,43 +81,71 @@ impl AppBuilder {
         self
     }
 
+    /// Set the state persistence backend (default: in-memory).
     pub fn store(mut self, store: impl StateStore + 'static) -> Self {
         self.store = Some(Arc::new(store));
         self
     }
 
+    /// Register a middleware that runs before every handler.
     pub fn middleware(mut self, m: impl Middleware + 'static) -> Self {
         self.middlewares.push(Arc::new(m));
         self
     }
 
+    /// Register a handler for a `/command`.
     pub fn command(
-        mut self, name: &str,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        mut self,
+        name: &str,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.command(name, handler);
         self
     }
 
+    /// Register a handler for a callback query prefix (e.g. `"pick"` matches `"pick:a"`).
     pub fn callback(
-        mut self, prefix: &str,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        mut self,
+        prefix: &str,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.callback(prefix, handler);
         self
     }
 
+    /// Register a text input handler for a specific screen.
     pub fn on_input(
-        mut self, screen_id: &str,
-        handler: impl Fn(&mut Ctx, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        mut self,
+        screen_id: &str,
+        handler: impl Fn(
+            &mut Ctx,
+            String,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_input(screen_id, handler);
         self
     }
 
+    /// Register a media input handler for a specific screen.
     pub fn on_media_input(
-        mut self, screen_id: &str,
-        handler: impl Fn(&mut Ctx, ReceivedMedia) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        mut self,
+        screen_id: &str,
+        handler: impl Fn(
+            &mut Ctx,
+            ReceivedMedia,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_media_input(screen_id, handler);
         self
@@ -126,39 +154,68 @@ impl AppBuilder {
     /// Catch-all handler for any text message not matched by screen-specific input handlers.
     pub fn on_any_text(
         mut self,
-        handler: impl Fn(&mut Ctx, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(
+            &mut Ctx,
+            String,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_any_text(handler);
         self
     }
 
+    /// Handler for unrecognized commands / messages that match no other route.
     pub fn on_unrecognized(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_unrecognized(handler);
         self
     }
 
+    /// On inline.
     pub fn on_inline(
         mut self,
-        handler: impl Fn(&mut Ctx, String, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(
+            &mut Ctx,
+            String,
+            String,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_inline(handler);
         self
     }
 
+    /// Register a handler for when a user picks one of the inline results.
     pub fn on_chosen_inline(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_chosen_inline(handler);
         self
     }
 
+    /// Register a handler for edited messages.
     pub fn on_message_edited(
         mut self,
-        handler: impl Fn(&mut Ctx, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(
+            &mut Ctx,
+            String,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_message_edited(handler);
         self
@@ -168,7 +225,10 @@ impl AppBuilder {
     /// The handler should call `ctx.bot().answer_pre_checkout_query()` to approve/decline.
     pub fn on_pre_checkout(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_pre_checkout(handler);
         self
@@ -177,7 +237,10 @@ impl AppBuilder {
     /// Handler for successful payments.
     pub fn on_successful_payment(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_successful_payment(handler);
         self
@@ -186,7 +249,10 @@ impl AppBuilder {
     /// Handler for new members joining the chat.
     pub fn on_member_joined(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_member_joined(handler);
         self
@@ -195,47 +261,79 @@ impl AppBuilder {
     /// Handler for members leaving the chat.
     pub fn on_member_left(
         mut self,
-        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync + 'static,
+        handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         self.router.on_member_left(handler);
         self
     }
 
+    /// Register a multi-step [`Form`].
     pub fn form(mut self, form: Form) -> Self {
         self.forms.insert(form.id.clone(), form);
         self
     }
 
+    /// Rate limit.
     pub fn rate_limit(mut self, rps: u32) -> Self {
         self.rate_limit_rps = Some(rps);
         self
     }
 
+    /// Control whether unrecognized messages are silently deleted (default: `true`).
+    ///
+    /// When `true`, messages that match no command, callback, or input handler
+    /// are automatically deleted to keep the chat clean. Set to `false` to
+    /// leave user messages untouched.
+    pub fn delete_unrecognized(mut self, yes: bool) -> Self {
+        self.router.delete_unrecognized = yes;
+        self
+    }
+
+    /// Maximum number of keys in per-chat state data (default: 1000).
+    ///
+    /// When the limit is reached, `ctx.set()` logs a warning and the oldest
+    /// key is evicted. Prevents unbounded memory growth from accidental
+    /// state accumulation.
+    pub fn max_state_keys(mut self, max: usize) -> Self {
+        self.max_state_keys = max;
+        self
+    }
+
+    /// I18n.
     pub fn i18n(self, i: I18n) -> Self {
         i18n::set_i18n(i);
         self
     }
 
+    /// Locales.
     pub fn locales(self, dir: &str, default_lang: &str) -> Self {
         let i = I18n::load(dir, default_lang).expect("failed to load locales");
         i18n::set_i18n(i);
         self
     }
 
+    /// Use Redis as the state backend. Requires the `redis` feature.
     #[cfg(feature = "redis")]
     pub fn redis_store(self, url: &str) -> Self {
-        let store = crate::redis_store::RedisStore::new(url)
-            .expect("failed to connect to Redis");
+        let store = crate::redis_store::RedisStore::new(url).expect("failed to connect to Redis");
         self.store(store)
     }
 
-    pub fn sqlite_store(self, path: &str) -> Self {
-        let store = crate::sqlite_store::SqliteStore::open(path)
-            .expect("failed to open SQLite store");
+    /// Use redb (pure Rust, ACID) as the persistent state backend.
+    #[cfg(feature = "redb")]
+    pub fn redb_store(self, path: &str) -> Self {
+        let store = crate::redb_store::RedbStore::open(path).expect("failed to open redb store");
         self.store(store)
     }
 
-    pub fn on_error(mut self, handler: impl Fn(ChatId, HandlerError) + Send + Sync + 'static) -> Self {
+    /// On error.
+    pub fn on_error(
+        mut self,
+        handler: impl Fn(ChatId, HandlerError) + Send + Sync + 'static,
+    ) -> Self {
         self.on_error = Some(Arc::new(handler));
         self
     }
@@ -253,8 +351,9 @@ impl AppBuilder {
     }
 
     /// Build and run the bot. Connects via MTProto, streams updates.
+    /// Build and run the bot. Phases: connect → event_loop → shutdown.
     pub async fn run(self) {
-        // Build store. If snapshot is enabled and no custom store, use InMemoryStore with snapshots.
+        // ━━━ Phase 1: Build state & connect ━━━
         let snapshot_store: Option<Arc<InMemoryStore>>;
         let store: Arc<dyn StateStore> = if let Some(custom) = self.store {
             snapshot_store = None;
@@ -282,15 +381,14 @@ impl AppBuilder {
 
         tracing::info!("Blazegram: connecting via MTProto...");
 
-        // ── Create grammers session & client ──
-        let session = Arc::new(
-            SqliteSession::open(&self.session_file)
-                .await
-                .expect("failed to open session file"),
-        );
+        // ── Create grammers session & client (pure Rust, no SQLite) ──
+        let session = Arc::new(FileSession::open(&self.session_file).await);
 
-        let SenderPool { runner, updates, handle } =
-            SenderPool::new(Arc::clone(&session), self.api_id);
+        let SenderPool {
+            runner,
+            updates,
+            handle,
+        } = SenderPool::new(Arc::clone(&session) as _, self.api_id);
         let client = Client::new(handle.clone());
 
         // Spawn the sender pool runner
@@ -315,7 +413,7 @@ impl AppBuilder {
         if let Some(ref snap_path) = self.snapshot_path {
             let peers_path = format!("{}.peers", snap_path);
             if let Ok(bytes) = tokio::fs::read(&peers_path).await {
-                if let Ok(peers) = bincode::deserialize::<Vec<(i64, i64, i64)>>(&bytes) {
+                if let Ok(peers) = postcard::from_bytes::<Vec<(i64, i64, i64)>>(&bytes) {
                     let count = peers.len();
                     adapter.import_peers(&peers);
                     tracing::info!(count, "Restored peer cache from disk");
@@ -323,10 +421,16 @@ impl AppBuilder {
             }
         }
         let bot_api: Arc<dyn BotApi> = if let Some(rps) = self.rate_limit_rps {
-            Arc::new(crate::rate_limiter::RateLimitedBotApi::new(adapter.clone(), rps))
+            Arc::new(crate::rate_limiter::RateLimitedBotApi::new(
+                adapter.clone(),
+                rps,
+            ))
         } else {
             Arc::new(adapter.clone())
         };
+
+        // ── Session flush task (persist auth keys + update state every 30s) ──
+        session.start_flush_task(std::time::Duration::from_secs(30));
 
         // ── GC task ──
         let gc_ser = serializer.clone();
@@ -339,12 +443,28 @@ impl AppBuilder {
         });
 
         // ── Snapshot task ──
-        if let (Some(ref mem_store), Some(ref snap_path)) = (&snapshot_store, &self.snapshot_path) {
+        if let (Some(mem_store), Some(snap_path)) = (&snapshot_store, &self.snapshot_path) {
             mem_store.start_snapshot_task(snap_path.clone(), self.snapshot_interval);
-            tracing::info!(interval_secs = self.snapshot_interval.as_secs(), "Snapshot task started");
+            tracing::info!(
+                interval_secs = self.snapshot_interval.as_secs(),
+                "Snapshot task started"
+            );
         }
 
-        // ── Stream updates ──
+        // ── Build shared runtime ──
+        let runtime = Runtime {
+            bot_api: bot_api.clone(),
+            router: router.clone(),
+            serializer: serializer.clone(),
+            middlewares: middlewares.clone(),
+            forms: forms.clone(),
+            grammers_client: client.clone(),
+            peer_cache: adapter.peer_cache(),
+            on_error: on_error.clone(),
+            max_state_keys: self.max_state_keys,
+        };
+
+        // ━━━ Phase 2: Event loop ━━━
         tracing::info!("Blazegram bot running. Waiting for updates...");
         let mut update_stream = client
             .stream_updates(
@@ -356,9 +476,8 @@ impl AppBuilder {
             )
             .await;
 
-        let mut sigterm = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate()
-        ).expect("failed to register SIGTERM");
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to register SIGTERM");
 
         loop {
             tokio::select! {
@@ -384,7 +503,7 @@ impl AppBuilder {
                         adapter.cache_peer(peer_ref);
 
                         // ── Inline queries & chosen results: fast path (no chat state, no serializer) ──
-                        if matches!(&incoming, IncomingUpdate::InlineQuery { .. } | IncomingUpdate::ChosenInlineResult { .. }) {
+                        if matches!(&incoming.kind, UpdateKind::InlineQuery { .. } | UpdateKind::ChosenInlineResult { .. }) {
                             let bot = bot_api.clone();
                             let router = router.clone();
                             tokio::spawn(async move {
@@ -393,29 +512,28 @@ impl AppBuilder {
                             continue;
                         }
 
-                        let bot = bot_api.clone();
-                        let router = router.clone();
-                        let serializer = serializer.clone();
-                        let middlewares = middlewares.clone();
-                        let forms = forms.clone();
-                        let gc = client.clone();
-                        let pc = adapter.peer_cache();
-                        let on_err = on_error.clone();
-
+                        let rt = runtime.clone();
                         tokio::spawn(async move {
-                            process_update(incoming, bot, router, serializer, middlewares, forms, gc, pc, on_err).await;
+                            process_update(incoming, rt).await;
                         });
                     }
                 }
             }
         }
 
-        // ── Graceful shutdown ──
+        // ━━━ Phase 3: Graceful shutdown ━━━
         tracing::info!("Syncing update state...");
         update_stream.sync_update_state().await;
 
+        // Flush session (auth keys, update state) to disk
+        if let Err(e) = session.flush().await {
+            tracing::error!(error = %e, "failed to flush session");
+        } else {
+            tracing::info!("Session flushed to disk");
+        }
+
         // Final snapshot before exit
-        if let (Some(ref mem_store), Some(ref snap_path)) = (&snapshot_store, &self.snapshot_path) {
+        if let (Some(mem_store), Some(snap_path)) = (&snapshot_store, &self.snapshot_path) {
             tracing::info!("Saving final snapshot...");
             if let Err(e) = mem_store.snapshot(snap_path).await {
                 tracing::error!(error = %e, "Failed to save final snapshot");
@@ -425,7 +543,7 @@ impl AppBuilder {
             // Persist peer cache alongside snapshot
             let peers_path = format!("{}.peers", snap_path);
             let peers = adapter.export_peers();
-            if let Ok(bytes) = bincode::serialize(&peers) {
+            if let Ok(bytes) = postcard::to_allocvec(&peers) {
                 let tmp = format!("{}.tmp", peers_path);
                 let _ = tokio::fs::write(&tmp, bytes).await;
                 let _ = tokio::fs::rename(&tmp, &peers_path).await;
@@ -436,247 +554,6 @@ impl AppBuilder {
         handle.quit();
         let _ = pool_task.await;
         tracing::info!("Blazegram bot stopped.");
-    }
-}
-
-// ── Update conversion ──
-
-async fn convert_update(update: &Update) -> Option<(IncomingUpdate, PeerRef)> {
-    match update {
-        Update::NewMessage(msg) => {
-            if msg.outgoing() { return None; }
-            let sender = msg.sender()?;
-            let peer_ref = msg.peer_ref().await?;
-            let user = user_from_peer(sender);
-            let chat_id = ChatId(peer_ref.id.bot_api_dialog_id());
-            let message_id = MessageId(msg.id());
-
-            // Check media types via raw TL
-            let raw_msg = &msg.raw;
-            if let tl::enums::Update::NewMessage(tl::types::UpdateNewMessage { message, .. })
-                | tl::enums::Update::NewChannelMessage(tl::types::UpdateNewChannelMessage { message, .. }) = raw_msg
-            {
-                if let tl::enums::Message::Message(m) = message {
-                    // Photo
-                    if let Some(tl::enums::MessageMedia::Photo(photo)) = &m.media {
-                        if let Some(tl::enums::Photo::Photo(p)) = &photo.photo {
-                            return Some((
-                                IncomingUpdate::Photo {
-                                    message_id, chat_id, user,
-                                    file_id: p.id.to_string(),
-                                    file_unique_id: p.id.to_string(),
-                                    caption: if m.message.is_empty() { None } else { Some(m.message.clone()) },
-                                },
-                                peer_ref,
-                            ));
-                        }
-                    }
-                    // Document
-                    if let Some(tl::enums::MessageMedia::Document(doc)) = &m.media {
-                        if let Some(tl::enums::Document::Document(d)) = &doc.document {
-                            let filename = d.attributes.iter().find_map(|a| {
-                                if let tl::enums::DocumentAttribute::Filename(f) = a {
-                                    Some(f.file_name.clone())
-                                } else { None }
-                            });
-                            return Some((
-                                IncomingUpdate::Document {
-                                    message_id, chat_id, user,
-                                    file_id: d.id.to_string(),
-                                    file_unique_id: d.id.to_string(),
-                                    filename,
-                                    caption: if m.message.is_empty() { None } else { Some(m.message.clone()) },
-                                },
-                                peer_ref,
-                            ));
-                        }
-                    }
-                }
-            }
-
-            // Text message (default)
-            let text = {
-                let t = msg.text().to_string();
-                if t.is_empty() { None } else { Some(t) }
-            };
-            Some((IncomingUpdate::Message { message_id, chat_id, user, text }, peer_ref))
-        }
-
-        Update::CallbackQuery(query) => {
-            let peer_ref = query.peer_ref().await?;
-            let sender = query.sender()?;
-            let user = user_from_peer(sender);
-            let chat_id = ChatId(peer_ref.id.bot_api_dialog_id());
-
-            let query_id = match &query.raw {
-                tl::enums::Update::BotCallbackQuery(u) => u.query_id.to_string(),
-                tl::enums::Update::InlineBotCallbackQuery(u) => u.query_id.to_string(),
-                _ => return None,
-            };
-
-            let msg_id = match &query.raw {
-                tl::enums::Update::BotCallbackQuery(u) => Some(MessageId(u.msg_id)),
-                _ => None,
-            };
-
-            // Extract inline_message_id for callbacks on inline messages
-            let inline_msg_id = match &query.raw {
-                tl::enums::Update::InlineBotCallbackQuery(u) => {
-                    // Serialize the InputBotInlineMessageId to base64 for later use
-                    use grammers_tl_types::Serializable;
-                    let mut buf = Vec::new();
-                    u.msg_id.serialize(&mut buf);
-                    Some(data_encoding::BASE64URL_NOPAD.encode(&buf))
-                }
-                _ => None,
-            };
-
-            let data = {
-                let bytes = query.data();
-                if bytes.is_empty() { None } else { String::from_utf8(bytes.to_vec()).ok() }
-            };
-
-            Some((
-                IncomingUpdate::CallbackQuery { id: query_id, chat_id, user, data, message_id: msg_id, inline_message_id: inline_msg_id },
-                peer_ref,
-            ))
-        }
-
-        Update::InlineQuery(query) => {
-            tracing::debug!(query_text = %query.text(), "received inline query from grammers");
-            // Build user info — sender() may return None if peer not in cache
-            let user = match query.sender() {
-                Some(s) => user_from_grammers_user(s),
-                None => {
-                    tracing::debug!("inline query: sender not cached, using raw user_id");
-                    UserInfo {
-                        id: UserId(query.sender_id().bare_id() as u64),
-                        first_name: String::new(),
-                        last_name: None,
-                        username: None,
-                        language_code: None,
-                    }
-                }
-            };
-            let (id, q, offset) = match &query.raw {
-                tl::enums::Update::BotInlineQuery(u) => {
-                    (u.query_id.to_string(), u.query.clone(), u.offset.clone())
-                }
-                _ => return None,
-            };
-            // peer_ref may also be None — for inline we don't strictly need it
-            let peer_ref = match query.sender_ref().await {
-                Some(pr) => pr,
-                None => {
-                    tracing::debug!("inline query: no peer_ref, using dummy");
-                    // Return without peer_ref — inline fast path doesn't need peer cache
-                    return Some((
-                        IncomingUpdate::InlineQuery { id, user, query: q, offset },
-                        // Minimal PeerRef — inline fast path doesn't use peer cache
-                        PeerRef {
-                            id: query.sender_id(),
-                            auth: grammers_session::types::PeerAuth::from_hash(0),
-                        },
-                    ));
-                }
-            };
-            Some((
-                IncomingUpdate::InlineQuery { id, user, query: q, offset },
-                peer_ref,
-            ))
-        }
-
-        Update::MessageEdited(msg) => {
-            if msg.outgoing() { return None; }
-            let sender = msg.sender()?;
-            let peer_ref = msg.peer_ref().await?;
-            let user = user_from_peer(sender);
-            let chat_id = ChatId(peer_ref.id.bot_api_dialog_id());
-            let message_id = MessageId(msg.id());
-            let text = {
-                let t = msg.text().to_string();
-                if t.is_empty() { None } else { Some(t) }
-            };
-            Some((IncomingUpdate::MessageEdited { message_id, chat_id, user, text }, peer_ref))
-        }
-
-        Update::InlineSend(inline_send) => {
-            let user = match inline_send.sender() {
-                Some(s) => user_from_grammers_user(s),
-                None => UserInfo {
-                    id: UserId(inline_send.sender_id().bare_id() as u64),
-                    first_name: String::new(),
-                    last_name: None,
-                    username: None,
-                    language_code: None,
-                },
-            };
-            let result_id = inline_send.result_id().to_string();
-            let query = inline_send.text().to_string();
-            // Extract inline_message_id as base64-encoded bytes
-            let inline_message_id = inline_send.message_id().map(|id| {
-                use grammers_client::tl;
-                match id {
-                    tl::enums::InputBotInlineMessageId::Id64(id64) => {
-                        let mut bytes = Vec::with_capacity(24);
-                        bytes.extend_from_slice(&id64.dc_id.to_le_bytes());
-                        bytes.extend_from_slice(&id64.owner_id.to_le_bytes());
-                        bytes.extend_from_slice(&id64.id.to_le_bytes());
-                        bytes.extend_from_slice(&id64.access_hash.to_le_bytes());
-                        data_encoding::BASE64URL_NOPAD.encode(&bytes)
-                    }
-                    tl::enums::InputBotInlineMessageId::Id(id) => {
-                        let mut bytes = Vec::with_capacity(20);
-                        bytes.extend_from_slice(&id.dc_id.to_le_bytes());
-                        bytes.extend_from_slice(&id.id.to_le_bytes());
-                        bytes.extend_from_slice(&id.access_hash.to_le_bytes());
-                        data_encoding::BASE64URL_NOPAD.encode(&bytes)
-                    }
-                }
-            });
-            let peer_ref = match inline_send.sender_ref().await {
-                Some(pr) => pr,
-                None => PeerRef {
-                    id: inline_send.sender_id(),
-                    auth: grammers_session::types::PeerAuth::from_hash(0),
-                },
-            };
-            Some((
-                IncomingUpdate::ChosenInlineResult {
-                    result_id,
-                    user,
-                    inline_message_id,
-                    query,
-                },
-                peer_ref,
-            ))
-        }
-
-        _ => None,
-    }
-}
-
-fn user_from_peer(peer: &grammers_client::peer::Peer) -> UserInfo {
-    use grammers_client::peer::Peer;
-    match peer {
-        Peer::User(u) => user_from_grammers_user(u),
-        _ => UserInfo {
-            id: UserId(peer.id().bare_id() as u64),
-            first_name: peer.name().unwrap_or_default().to_string(),
-            last_name: None,
-            username: peer.username().map(String::from),
-            language_code: None,
-        },
-    }
-}
-
-fn user_from_grammers_user(u: &grammers_client::peer::User) -> UserInfo {
-    UserInfo {
-        id: UserId(u.id().bare_id() as u64),
-        first_name: u.first_name().unwrap_or_default().to_string(),
-        last_name: u.last_name().map(String::from),
-        username: u.username().map(String::from),
-        language_code: None, // MTProto doesn't provide lang in updates
     }
 }
 
@@ -691,19 +568,28 @@ async fn handle_inline_fast(
     let dummy_state = ChatState::new(ChatId(user.id.0 as i64), user.clone());
     let mut ctx = Ctx::new(dummy_state, bot_api.clone(), None);
 
-    match &incoming {
-        IncomingUpdate::InlineQuery { query, offset, id, .. } => {
+    match &incoming.kind {
+        UpdateKind::InlineQuery { query, offset, id } => {
             ctx.inline_query_id = Some(id.clone());
             tracing::debug!(query_id = %id, query = %query, "dispatching inline query to handler");
-            match router.dispatch_inline(&mut ctx, query.clone(), offset.clone()).await {
+            match router
+                .dispatch_inline(&mut ctx, query.clone(), offset.clone())
+                .await
+            {
                 Ok(()) => tracing::debug!("inline query handler completed OK"),
                 Err(e) => tracing::error!(error = %e, "inline query handler error"),
             }
         }
-        IncomingUpdate::ChosenInlineResult { result_id, inline_message_id, .. } => {
+        UpdateKind::ChosenInlineResult {
+            result_id,
+            inline_message_id,
+            ..
+        } => {
             ctx.chosen_inline_result_id = Some(result_id.clone());
-            if let Some(ref imid) = inline_message_id {
-                ctx.mode = CtxMode::Inline { inline_message_id: imid.clone() };
+            if let Some(imid) = inline_message_id {
+                ctx.mode = CtxMode::Inline {
+                    inline_message_id: imid.clone(),
+                };
             }
             if let Err(e) = router.route(&mut ctx, &incoming).await {
                 tracing::error!(error = %e, "chosen inline result handler error");
@@ -713,12 +599,10 @@ async fn handle_inline_fast(
     }
 }
 
-// ── Process update ──
+// ── Shared runtime context (replaces 7+ Arc arguments) ──
 
-#[tracing::instrument(skip_all, fields(chat_id = %incoming.chat_id().0))]
-#[allow(clippy::too_many_arguments)]
-async fn process_update(
-    incoming: IncomingUpdate,
+#[derive(Clone)]
+struct Runtime {
     bot_api: Arc<dyn BotApi>,
     router: Arc<Router>,
     serializer: Arc<ChatSerializer>,
@@ -727,7 +611,13 @@ async fn process_update(
     grammers_client: grammers_client::Client,
     peer_cache: Arc<dashmap::DashMap<i64, grammers_session::types::PeerRef>>,
     on_error: Option<Arc<ErrorHandler>>,
-) {
+    max_state_keys: usize,
+}
+
+// ── Process update ──
+
+#[tracing::instrument(skip_all, fields(chat_id = %incoming.chat_id().0))]
+async fn process_update(incoming: IncomingUpdate, rt: Runtime) {
     metrics().inc_updates();
     let _timer = metrics().timer("update");
 
@@ -736,134 +626,164 @@ async fn process_update(
 
     // (inline queries use user_id as pseudo chat_id)
 
-    for mw in middlewares.iter() {
-        if !mw.before(chat_id, &user, &incoming).await { return; }
+    for mw in rt.middlewares.iter() {
+        if !mw.before(chat_id, &user, &incoming).await {
+            return;
+        }
     }
 
-    serializer.serialize(chat_id, &user, |state| {
-        let router = router.clone();
-        let bot = bot_api.clone();
-        let forms = forms.clone();
-        let incoming = incoming.clone();
-        let middlewares = middlewares.clone();
-        let on_error = on_error.clone();
+    rt.serializer
+        .serialize(chat_id, &user, |state| {
+            let rt = rt.clone();
+            let incoming = incoming.clone();
 
-        async move {
-            let callback_data = match &incoming {
-                IncomingUpdate::CallbackQuery { data, .. } => data.clone(),
-                _ => None,
-            };
-
-            let mut ctx = Ctx::new(state, bot.clone(), callback_data);
-            ctx.grammers_client = Some(grammers_client.clone());
-            ctx.peer_cache = Some(peer_cache.clone());
-
-            // Determine CtxMode
-            let cid = incoming.chat_id();
-            // Check for inline callback first (callback on an inline message)
-            if let IncomingUpdate::CallbackQuery { inline_message_id: Some(ref imid), .. } = incoming {
-                ctx.mode = CtxMode::Inline { inline_message_id: imid.clone() };
-                tracing::debug!(imid = %imid, "inline callback detected");
-            } else if cid.0 < 0 {
-                // Group/supergroup/channel
-                let trigger = match &incoming {
-                    IncomingUpdate::CallbackQuery { message_id, .. } => *message_id,
+            async move {
+                let callback_data = match &incoming.kind {
+                    UpdateKind::CallbackQuery { data, .. } => data.clone(),
                     _ => None,
                 };
-                ctx.mode = CtxMode::Group { trigger_message_id: trigger };
-            }
 
-            if let IncomingUpdate::CallbackQuery { id, .. } = &incoming {
-                ctx.state.pending_callback_id = Some(id.clone());
-            }
-            ctx.deep_link = incoming.deep_link().map(String::from);
+                let mut ctx = Ctx::new(state, rt.bot_api.clone(), callback_data);
+                ctx.grammers_client = Some(rt.grammers_client.clone());
+                ctx.peer_cache = Some(rt.peer_cache.clone());
+                ctx.max_state_keys = rt.max_state_keys;
 
-            // Set context fields from incoming update
-            match &incoming {
-                IncomingUpdate::Message { text, message_id, .. } => {
-                    ctx.message_text = text.clone();
-                    ctx.incoming_message_id = Some(*message_id);
+                // Determine CtxMode
+                let cid = incoming.chat_id;
+                if let UpdateKind::CallbackQuery {
+                    inline_message_id: Some(ref imid),
+                    ..
+                } = incoming.kind
+                {
+                    ctx.mode = CtxMode::Inline {
+                        inline_message_id: imid.clone(),
+                    };
+                    tracing::debug!(imid = %imid, "inline callback detected");
+                } else if cid.0 < 0 {
+                    let trigger = match &incoming.kind {
+                        UpdateKind::CallbackQuery { .. } => incoming.message_id,
+                        _ => None,
+                    };
+                    ctx.mode = CtxMode::Group {
+                        trigger_message_id: trigger,
+                    };
                 }
-                IncomingUpdate::CallbackQuery { message_id, .. } => {
-                    ctx.incoming_message_id = *message_id;
+
+                if let UpdateKind::CallbackQuery { id, .. } = &incoming.kind {
+                    ctx.state.pending_callback_id = Some(id.clone());
                 }
-                IncomingUpdate::Photo { message_id, .. }
-                | IncomingUpdate::Document { message_id, .. }
-                | IncomingUpdate::MessageEdited { message_id, .. } => {
-                    ctx.incoming_message_id = Some(*message_id);
+                ctx.deep_link = incoming.deep_link().map(String::from);
+                ctx.incoming_message_id = incoming.message_id;
+
+                // Set context fields from incoming update
+                match &incoming.kind {
+                    UpdateKind::Message { text, .. } => {
+                        ctx.message_text = text.clone();
+                    }
+                    UpdateKind::InlineQuery { id, .. } => {
+                        ctx.inline_query_id = Some(id.clone());
+                    }
+                    UpdateKind::ChosenInlineResult {
+                        result_id,
+                        inline_message_id,
+                        ..
+                    } => {
+                        ctx.chosen_inline_result_id = Some(result_id.clone());
+                        if let Some(imid) = inline_message_id {
+                            ctx.mode = CtxMode::Inline {
+                                inline_message_id: imid.clone(),
+                            };
+                        }
+                    }
+                    UpdateKind::PreCheckoutQuery {
+                        id,
+                        currency,
+                        total_amount,
+                        payload,
+                    } => {
+                        ctx.payment = crate::ctx::PaymentContext {
+                            query_id: Some(id.clone()),
+                            payload: Some(payload.clone()),
+                            currency: Some(currency.clone()),
+                            total_amount: Some(*total_amount),
+                        };
+                    }
+                    UpdateKind::SuccessfulPayment {
+                        currency,
+                        total_amount,
+                        payload,
+                    } => {
+                        ctx.payment = crate::ctx::PaymentContext {
+                            query_id: None,
+                            payload: Some(payload.clone()),
+                            currency: Some(currency.clone()),
+                            total_amount: Some(*total_amount),
+                        };
+                    }
+                    _ => {}
                 }
-                IncomingUpdate::InlineQuery { id, .. } => {
-                    ctx.inline_query_id = Some(id.clone());
-                }
-                IncomingUpdate::ChosenInlineResult { result_id, inline_message_id, .. } => {
-                    ctx.chosen_inline_result_id = Some(result_id.clone());
-                    if let Some(ref imid) = inline_message_id {
-                        ctx.mode = CtxMode::Inline { inline_message_id: imid.clone() };
+
+                // Built-in: dismiss button
+                if let UpdateKind::CallbackQuery {
+                    data: Some(ref d), ..
+                } = incoming.kind
+                {
+                    if d == "__dismiss" {
+                        if let Some(mid) = incoming.message_id {
+                            let _ = rt
+                                .bot_api
+                                .delete_messages(incoming.chat_id, vec![mid])
+                                .await;
+                            ctx.state
+                                .active_bot_messages
+                                .retain(|t| t.message_id != mid);
+                        }
+                        if let Some(cb_id) = ctx.state.pending_callback_id.take() {
+                            let _ = rt.bot_api.answer_callback_query(cb_id, None, false).await;
+                        }
+                        return ctx.state;
                     }
                 }
-                IncomingUpdate::PreCheckoutQuery { id, currency, total_amount, payload, .. } => {
-                    ctx.pre_checkout_query_id = Some(id.clone());
-                    ctx.payment_payload = Some(payload.clone());
-                    ctx.payment_currency = Some(currency.clone());
-                    ctx.payment_total_amount = Some(*total_amount);
-                }
-                IncomingUpdate::SuccessfulPayment { currency, total_amount, payload, .. } => {
-                    ctx.payment_payload = Some(payload.clone());
-                    ctx.payment_currency = Some(currency.clone());
-                    ctx.payment_total_amount = Some(*total_amount);
-                }
-                _ => {}
-            }
 
-            // Built-in: dismiss button
-            if let IncomingUpdate::CallbackQuery { data: Some(ref d), .. } = incoming {
-                if d == "__dismiss" {
-                    if let IncomingUpdate::CallbackQuery { message_id: Some(mid), .. } = &incoming {
-                        let _ = bot.delete_messages(incoming.chat_id(), vec![*mid]).await;
-                        ctx.state.active_bot_messages.retain(|t| t.message_id != *mid);
+                let result = {
+                    let handler_fut =
+                        handle_form_or_route(&rt.forms, &rt.router, &mut ctx, &incoming);
+                    match tokio::time::timeout(std::time::Duration::from_secs(120), handler_fut)
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => {
+                            tracing::error!(chat_id = chat_id.0, "handler timed out (120s)");
+                            Err(HandlerError::Timeout(std::time::Duration::from_secs(120)))
+                        }
                     }
-                    if let Some(cb_id) = ctx.state.pending_callback_id.take() {
-                        let _ = bot.answer_callback_query(cb_id, None, false).await;
-                    }
-                    return ctx.state;
-                }
-            }
+                };
 
-            let result = {
-                let handler_fut = handle_form_or_route(&forms, &router, &mut ctx, &incoming);
-                match tokio::time::timeout(std::time::Duration::from_secs(120), handler_fut).await {
-                    Ok(r) => r,
-                    Err(_) => {
-                        tracing::error!(chat_id = chat_id.0, "handler timed out (120s)");
-                        Err(HandlerError::Internal(anyhow::anyhow!("handler timed out")))
+                if let Some(cb_id) = ctx.state.pending_callback_id.take() {
+                    let _ = rt.bot_api.answer_callback_query(cb_id, None, false).await;
+                }
+
+                for mw in rt.middlewares.iter() {
+                    mw.after(chat_id, &ctx.state.user, &incoming, &result).await;
+                }
+
+                if let Err(ref e) = result {
+                    metrics().inc_errors();
+                    tracing::error!(chat_id = chat_id.0, error = %e, "handler error");
+                }
+                if let Err(e) = result {
+                    if let Some(ref on_err) = rt.on_error {
+                        on_err(chat_id, e);
                     }
                 }
-            };
 
-            if let Some(cb_id) = ctx.state.pending_callback_id.take() {
-                let _ = bot.answer_callback_query(cb_id, None, false).await;
+                // Seal reply — next handler call's reply() will send a new message
+                ctx.state.reply_sealed = true;
+
+                ctx.state
             }
-
-            for mw in middlewares.iter() {
-                mw.after(chat_id, &ctx.state.user, &incoming, &result).await;
-            }
-
-            if let Err(ref e) = result {
-                metrics().inc_errors();
-                tracing::error!(chat_id = chat_id.0, error = %e, "handler error");
-            }
-            if let Err(e) = result {
-                if let Some(ref on_err) = on_error {
-                    on_err(chat_id, e);
-                }
-            }
-
-            // Seal reply — next handler call's reply() will send a new message
-            ctx.state.reply_sealed = true;
-
-            ctx.state
-        }
-    }).await;
+        })
+        .await;
 }
 
 async fn handle_form_or_route(
@@ -883,14 +803,25 @@ async fn handle_form_or_route(
     router.route(ctx, update).await
 }
 
-async fn run_form_step(
-    form: &Form, ctx: &mut Ctx, update: &IncomingUpdate,
-) -> HandlerResult {
+async fn run_form_step(form: &Form, ctx: &mut Ctx, update: &IncomingUpdate) -> HandlerResult {
     let step_idx: usize = ctx.get("__form_step").unwrap_or(0);
     let mut form_data: FormData = ctx.get("__form_data").unwrap_or_default();
 
-    match update {
-        IncomingUpdate::CallbackQuery { data: Some(data), id, .. } => {
+    if let Some(mid) = update.message_id {
+        match &update.kind {
+            UpdateKind::Message { .. } | UpdateKind::Photo { .. } => {
+                ctx.state.pending_user_messages.push(mid);
+            }
+            _ => {}
+        }
+    }
+
+    match &update.kind {
+        UpdateKind::CallbackQuery {
+            data: Some(data),
+            id,
+            ..
+        } => {
             ctx.state.pending_callback_id = Some(id.clone());
             ctx.callback_data = Some(data.clone());
 
@@ -923,8 +854,7 @@ async fn run_form_step(
             }
         }
 
-        IncomingUpdate::Message { text: Some(text), message_id, .. } => {
-            ctx.state.pending_user_messages.push(*message_id);
+        UpdateKind::Message { text: Some(text) } => {
             if text.starts_with('/') {
                 ctx.remove("__form_id");
                 ctx.remove("__form_step");
@@ -940,24 +870,27 @@ async fn run_form_step(
                         return advance_form_step(form, ctx, step_idx + 1, form_data).await;
                     }
                     Err(err) => {
-                        let _ = ctx.delete_now(*message_id).await;
-                        ctx.state.pending_user_messages.retain(|id| id != message_id);
-                        let _ = ctx.notify_temp(
-                            format!("❌ {}", err),
-                            std::time::Duration::from_secs(3),
-                        ).await;
+                        if let Some(mid) = update.message_id {
+                            let _ = ctx.delete_now(mid).await;
+                            ctx.state.pending_user_messages.retain(|id| *id != mid);
+                        }
+                        let _ = ctx
+                            .notify_temp(format!("❌ {}", err), std::time::Duration::from_secs(3))
+                            .await;
                         return Ok(());
                     }
                 }
             }
         }
 
-        IncomingUpdate::Photo { message_id, file_id, .. } => {
-            ctx.state.pending_user_messages.push(*message_id);
+        UpdateKind::Photo { file_id, .. } => {
             if step_idx < form.steps.len() {
                 let step = &form.steps[step_idx];
                 if matches!(step.parser, crate::form::FieldParser::Photo) {
-                    form_data.insert(step.field.clone(), serde_json::Value::String(file_id.clone()));
+                    form_data.insert(
+                        step.field.clone(),
+                        serde_json::Value::String(file_id.clone()),
+                    );
                     ctx.set("__form_data", &form_data);
                     return advance_form_step(form, ctx, step_idx + 1, form_data).await;
                 }
@@ -970,7 +903,10 @@ async fn run_form_step(
 }
 
 async fn advance_form_step(
-    form: &Form, ctx: &mut Ctx, next_step: usize, form_data: FormData,
+    form: &Form,
+    ctx: &mut Ctx,
+    next_step: usize,
+    form_data: FormData,
 ) -> HandlerResult {
     if next_step >= form.steps.len() {
         ctx.remove("__form_id");
@@ -986,7 +922,12 @@ async fn advance_form_step(
 }
 
 impl Ctx {
-    pub async fn start_form(&mut self, form_id: &str, forms: &HashMap<String, Form>) -> HandlerResult {
+    /// Start form.
+    pub async fn start_form(
+        &mut self,
+        form_id: &str,
+        forms: &HashMap<String, Form>,
+    ) -> HandlerResult {
         let form = forms.get(form_id).ok_or_else(|| {
             HandlerError::Internal(anyhow::anyhow!("form '{}' not found", form_id))
         })?;

@@ -2,9 +2,8 @@
 //!
 //! BOT_TOKEN=... cargo run --example showcase_bot
 
-use blazegram::prelude::*;
+use blazegram::{form_handler, handler, prelude::*};
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct UserData {
@@ -37,18 +36,26 @@ async fn main() {
     // ── Form ──
     let feedback_form = Form::builder("feedback")
         .text_step("name", "name", "What's your name?")
-            .validator(|s| {
-                if s.len() < 2 { Err("Min 2 chars".into()) }
-                else if s.len() > 50 { Err("Max 50 chars".into()) }
-                else { Ok(()) }
-            })
-            .done()
+        .validator(|s| {
+            if s.len() < 2 {
+                Err("Min 2 chars".into())
+            } else if s.len() > 50 {
+                Err("Max 50 chars".into())
+            } else {
+                Ok(())
+            }
+        })
+        .done()
         .integer_step("rating", "rating", "Rate 1-5:")
-            .min(1).max(5)
-            .done()
-        .choice_step("topic", "topic", "What about?", vec![
-            ("UX", "ux"), ("Bugs", "bugs"), ("Features", "features"),
-        ])
+        .min(1)
+        .max(5)
+        .done()
+        .choice_step(
+            "topic",
+            "topic",
+            "What about?",
+            vec![("UX", "ux"), ("Bugs", "bugs"), ("Features", "features")],
+        )
         .confirm_step(|data| {
             format!(
                 "Name: {}\nRating: {}\nTopic: {}",
@@ -57,7 +64,7 @@ async fn main() {
                 data.get("topic").and_then(|v| v.as_str()).unwrap_or("?"),
             )
         })
-        .on_complete(|ctx, data| Box::pin(async move {
+        .on_complete(form_handler!(ctx, data => {
             let summary = format!(
                 "Feedback received!\n\nName: <b>{}</b>\nRating: {}\nTopic: {}",
                 blazegram::markup::escape(
@@ -71,7 +78,7 @@ async fn main() {
                 .build()
             ).await
         }))
-        .on_cancel(|ctx| Box::pin(async move {
+        .on_cancel(handler!(ctx => {
             ctx.navigate(main_menu(ctx)).await
         }))
         .build();
@@ -87,7 +94,7 @@ async fn main() {
         .snapshot_interval(std::time::Duration::from_secs(60))
 
         // === COMMANDS ===
-        .command("start", |ctx| Box::pin(async move {
+        .command("start", handler!(ctx => {
             // Deep link support
             if let Some(payload) = ctx.deep_link() {
                 return ctx.navigate(
@@ -98,7 +105,7 @@ async fn main() {
             }
             ctx.navigate(main_menu(ctx)).await
         }))
-        .command("help", |ctx| Box::pin(async move {
+        .command("help", handler!(ctx => {
             ctx.navigate(
                 Screen::text("help", HELP_TEXT)
                     .keyboard(|kb| kb.button_row("Menu", "menu"))
@@ -116,18 +123,18 @@ async fn main() {
                 )).keyboard(|kb| kb.button_row("Menu", "menu")).build()).await
             })
         })
-        .command("dice", |ctx| Box::pin(async move {
+        .command("dice", handler!(ctx => {
             ctx.send_dice(DiceEmoji::Dice).await?;
             Ok(())
         }))
-        .command("typing", |ctx| Box::pin(async move {
+        .command("typing", handler!(ctx => {
             ctx.typing().await?;
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             ctx.reply(Screen::text("typed", "Done typing!").build()).await
         }))
 
         // === CALLBACKS: Menu & Navigation ===
-        .callback("menu", |ctx| Box::pin(async move {
+        .callback("menu", handler!(ctx => {
             ctx.navigate(main_menu(ctx)).await
         }))
         .callback("show_stats", move |ctx| {
@@ -143,25 +150,25 @@ async fn main() {
         })
 
         // -- Push/Pop navigation stack --
-        .callback("nav_demo", |ctx| Box::pin(async move {
+        .callback("nav_demo", handler!(ctx => {
             ctx.push(Screen::text("nav_l1", "Level 1 (pushed)")
                 .keyboard(|kb| kb.button_row("Go deeper", "nav_l2").nav_back("nav_pop"))
                 .build()
             ).await
         }))
-        .callback("nav_l2", |ctx| Box::pin(async move {
+        .callback("nav_l2", handler!(ctx => {
             ctx.push(Screen::text("nav_l2", "Level 2 (pushed again)")
                 .keyboard(|kb| kb.button_row("Go deeper", "nav_l3").nav_back("nav_pop"))
                 .build()
             ).await
         }))
-        .callback("nav_l3", |ctx| Box::pin(async move {
+        .callback("nav_l3", handler!(ctx => {
             ctx.push(Screen::text("nav_l3", "Level 3 — the bottom")
                 .keyboard(|kb| kb.nav_back("nav_pop"))
                 .build()
             ).await
         }))
-        .callback("nav_pop", |ctx| Box::pin(async move {
+        .callback("nav_pop", handler!(ctx => {
             ctx.pop(|prev_id| {
                 Screen::text(prev_id.clone(), format!("Popped back to <code>{}</code>", prev_id))
                     .keyboard(|kb| kb.button_row("Go deeper", "nav_l2").nav_back("nav_pop").button_row("Menu", "menu"))
@@ -170,23 +177,23 @@ async fn main() {
         }))
 
         // -- Counter (typed state) --
-        .callback("counter", |ctx| Box::pin(async move {
+        .callback("counter", handler!(ctx => {
             let d: UserData = ctx.state();
             ctx.navigate(counter_screen(d.counter)).await
         }))
-        .callback("inc", |ctx| Box::pin(async move {
+        .callback("inc", handler!(ctx => {
             let mut d: UserData = ctx.state();
             d.counter += 1;
             ctx.set_state(&d);
             ctx.navigate(counter_screen(d.counter)).await
         }))
-        .callback("dec", |ctx| Box::pin(async move {
+        .callback("dec", handler!(ctx => {
             let mut d: UserData = ctx.state();
             d.counter -= 1;
             ctx.set_state(&d);
             ctx.navigate(counter_screen(d.counter)).await
         }))
-        .callback("reset", |ctx| Box::pin(async move {
+        .callback("reset", handler!(ctx => {
             let mut d: UserData = ctx.state();
             d.counter = 0;
             ctx.set_state(&d);
@@ -195,7 +202,7 @@ async fn main() {
         }))
 
         // -- Differ demo (edit vs delete+send) --
-        .callback("diff_main", |ctx| Box::pin(async move {
+        .callback("diff_main", handler!(ctx => {
             ctx.navigate(Screen::text("diff_main", 
                 "<b>Differ Demo</b>\n\nPress a button = edit in place (no flicker).\nType something = delete old + send new at bottom.")
                 .keyboard(|kb| kb
@@ -205,13 +212,13 @@ async fn main() {
                 ).build()
             ).await
         }))
-        .callback("diff_a", |ctx| Box::pin(async move {
+        .callback("diff_a", handler!(ctx => {
             ctx.navigate(Screen::text("diff_main", "State A — edited in place!")
                 .keyboard(|kb| kb.button_row("Switch to B", "diff_b").button_row("Switch to A", "diff_a").nav_back("menu"))
                 .build()
             ).await
         }))
-        .callback("diff_b", |ctx| Box::pin(async move {
+        .callback("diff_b", handler!(ctx => {
             ctx.navigate(Screen::text("diff_main", "State B — still in place!")
                 .keyboard(|kb| kb.button_row("Switch to A", "diff_a").button_row("Switch to B", "diff_b").nav_back("menu"))
                 .build()
@@ -219,7 +226,7 @@ async fn main() {
         }))
 
         // -- Markup --
-        .callback("markup", |ctx| Box::pin(async move {
+        .callback("markup", handler!(ctx => {
             // markup::render() converts custom markdown to HTML
             let text = blazegram::markup::render("*Bold* _italic_ ~strike~ `code` __underline__");
             let full = format!(
@@ -235,7 +242,7 @@ async fn main() {
         }))
 
         // -- Template engine --
-        .callback("template", |ctx| Box::pin(async move {
+        .callback("template", handler!(ctx => {
             let tpl = "<b>{{ title }}</b>\n\n{% for item in items %}* {{ item }}\n{% endfor %}\n{% if show_footer %}\n<i>{{ footer }}</i>{% endif %}";
             let mut vars = std::collections::HashMap::new();
             vars.insert("title", "Shopping List".to_string());
@@ -250,13 +257,13 @@ async fn main() {
         }))
 
         // -- Pagination --
-        .callback("paginate", |ctx| Box::pin(async move {
+        .callback("paginate", handler!(ctx => {
             let items: Vec<String> = (1..=47).map(|i| format!("Item #{}", i)).collect();
             let pag = Paginator::new(items, 8);
             ctx.set("pager", &pag);
             ctx.navigate(make_page(&pag)).await
         }))
-        .callback("page", |ctx| Box::pin(async move {
+        .callback("page", handler!(ctx => {
             let page: usize = ctx.callback_param_as().unwrap_or(0);
             let mut pag: Paginator<String> = ctx.get("pager").unwrap();
             pag.set_page(page);
@@ -265,7 +272,7 @@ async fn main() {
         }))
 
         // -- Progressive (streaming) --
-        .callback("progressive", |ctx| Box::pin(async move {
+        .callback("progressive", handler!(ctx => {
             let handle = ctx.progressive(
                 Screen::text("prog", "Loading...").build()
             ).await?;
@@ -283,7 +290,7 @@ async fn main() {
         }))
 
         // -- Reply mode (conversation) --
-        .callback("reply_demo", |ctx| Box::pin(async move {
+        .callback("reply_demo", handler!(ctx => {
             ctx.reply(Screen::reply_text("Thinking...")).await?;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             ctx.reply(Screen::reply_text("Still thinking...")).await?;
@@ -295,7 +302,7 @@ async fn main() {
         }))
 
         // -- Freeze message --
-        .callback("freeze_demo", |ctx| Box::pin(async move {
+        .callback("freeze_demo", handler!(ctx => {
             let sent = ctx.send_text("This message is FROZEN. Navigate won't delete it.").await?;
             ctx.freeze_message(sent.message_id);
             ctx.navigate(Screen::text("freeze_info", "Frozen message above will survive navigations.\nPress Menu — it stays!")
@@ -303,7 +310,7 @@ async fn main() {
                 .build()
             ).await
         }))
-        .callback("unfreeze", |ctx| Box::pin(async move {
+        .callback("unfreeze", handler!(ctx => {
             let mid: i32 = ctx.callback_param_as().unwrap_or(0);
             ctx.unfreeze_message(MessageId(mid));
             let _ = ctx.delete_now(MessageId(mid)).await;
@@ -312,7 +319,7 @@ async fn main() {
         }))
 
         // -- Permanent message --
-        .callback("permanent", |ctx| Box::pin(async move {
+        .callback("permanent", handler!(ctx => {
             ctx.send_permanent(
                 Screen::text("perm", "This is a PERMANENT message. It survives navigate().").build()
             ).await?;
@@ -323,7 +330,7 @@ async fn main() {
         }))
 
         // -- Keyboard variety --
-        .callback("keyboards", |ctx| Box::pin(async move {
+        .callback("keyboards", handler!(ctx => {
             ctx.navigate(Screen::text("keyboards", "<b>Keyboard Types</b>\n\nInline buttons below. Reply keyboard at bottom.")
                 .keyboard(|kb| kb
                     .button("A", "kb_noop").button("B", "kb_noop").button("C", "kb_noop").row()
@@ -337,10 +344,10 @@ async fn main() {
                 .build()
             ).await
         }))
-        .callback("kb_noop", |ctx| Box::pin(async move {
+        .callback("kb_noop", handler!(ctx => {
             ctx.toast(format!("Pressed: {}", ctx.callback_data().unwrap_or("?"))).await
         }))
-        .callback("kb_confirm", |ctx| Box::pin(async move {
+        .callback("kb_confirm", handler!(ctx => {
             ctx.alert("Confirmed!").await?;
             ctx.navigate(Screen::text("kb_done", "Keyboard demo done.")
                 .remove_reply_keyboard()
@@ -350,14 +357,14 @@ async fn main() {
         }))
 
         // -- Notify & temp notify --
-        .callback("notify", |ctx| Box::pin(async move {
+        .callback("notify", handler!(ctx => {
             ctx.notify("This notification will be deleted on next navigate()").await?;
             ctx.notify_temp("This auto-deletes in 3 seconds", std::time::Duration::from_secs(3)).await?;
             Ok(())
         }))
 
         // -- Protect content --
-        .callback("protect", |ctx| Box::pin(async move {
+        .callback("protect", handler!(ctx => {
             ctx.navigate(Screen::text("protected", "This message has <b>protect_content</b> = true.\nTry to forward it — you can't!")
                 .protect_content()
                 .keyboard(|kb| kb.nav_back("menu"))
@@ -366,7 +373,7 @@ async fn main() {
         }))
 
         // -- Link preview --
-        .callback("linkpreview", |ctx| Box::pin(async move {
+        .callback("linkpreview", handler!(ctx => {
             ctx.navigate(Screen::text("linkpreview", "Link preview enabled:\nhttps://github.com/nickel-lang/grammers")
                 .link_preview(LinkPreview::Enabled)
                 .keyboard(|kb| kb.nav_back("menu"))
@@ -375,7 +382,7 @@ async fn main() {
         }))
 
         // -- Multi-message screen --
-        .callback("multimsg", |ctx| Box::pin(async move {
+        .callback("multimsg", handler!(ctx => {
             ctx.navigate(
                 Screen::builder("multimsg")
                     .text("<b>Message 1</b>\nThis is the first message.")
@@ -390,7 +397,7 @@ async fn main() {
         }))
 
         // -- Photo screen --
-        .callback("photo", |ctx| Box::pin(async move {
+        .callback("photo", handler!(ctx => {
             ctx.navigate(
                 Screen::builder("photo")
                     .photo("https://picsum.photos/400/300")
@@ -402,19 +409,19 @@ async fn main() {
         }))
 
         // -- Dice --
-        .callback("dice", |ctx| Box::pin(async move {
+        .callback("dice", handler!(ctx => {
             ctx.send_dice(DiceEmoji::Dice).await?;
             Ok(())
         }))
-        .callback("darts", |ctx| Box::pin(async move {
+        .callback("darts", handler!(ctx => {
             ctx.send_dice(DiceEmoji::Darts).await?;
             Ok(())
         }))
-        .callback("slots", |ctx| Box::pin(async move {
+        .callback("slots", handler!(ctx => {
             ctx.send_dice(DiceEmoji::SlotMachine).await?;
             Ok(())
         }))
-        .callback("fun", |ctx| Box::pin(async move {
+        .callback("fun", handler!(ctx => {
             ctx.navigate(Screen::text("fun", "<b>Fun stuff</b>")
                 .keyboard(|kb| kb
                     .button("Dice", "dice").button("Darts", "darts").button("Slots", "slots").row()
@@ -424,7 +431,7 @@ async fn main() {
         }))
 
         // -- Form start --
-        .callback("form", |ctx| Box::pin(async move {
+        .callback("form", handler!(ctx => {
             ctx.set("__form_id", &"feedback".to_string());
             ctx.set("__form_step", &0usize);
             ctx.set("__form_data", &std::collections::HashMap::<String, serde_json::Value>::new());
@@ -437,7 +444,7 @@ async fn main() {
         }))
 
         // -- Reaction --
-        .callback("react", |ctx| Box::pin(async move {
+        .callback("react", handler!(ctx => {
             if let Some(mid) = ctx.message_id() {
                 let _ = ctx.react(mid, "\u{1f525}").await;
             }
@@ -445,7 +452,7 @@ async fn main() {
         }))
 
         // === INPUT HANDLERS ===
-        .callback("ask_input", |ctx| Box::pin(async move {
+        .callback("ask_input", handler!(ctx => {
             ctx.navigate(
                 Screen::builder("awaiting_text")
                     .text("Send me any text message:")
@@ -455,13 +462,13 @@ async fn main() {
                     .build()
             ).await
         }))
-        .on_input("awaiting_text", |ctx, text| Box::pin(async move {
+        .on_input("awaiting_text", handler!(ctx, text => {
             ctx.navigate(Screen::text("got_text",
                 format!("You said: <code>{}</code>\nLength: {}", blazegram::markup::escape(&text), text.len())
             ).keyboard(|kb| kb.button_row("Again", "ask_input").nav_back("menu")).build()).await
         }))
 
-        .callback("ask_media", |ctx| Box::pin(async move {
+        .callback("ask_media", handler!(ctx => {
             ctx.navigate(
                 Screen::builder("awaiting_media")
                     .text("Send me a photo, document, voice, video, or sticker:")
@@ -469,7 +476,7 @@ async fn main() {
                     .build()
             ).await
         }))
-        .on_media_input("awaiting_media", |ctx, media| Box::pin(async move {
+        .on_media_input("awaiting_media", handler!(ctx, media => {
             ctx.navigate(Screen::text("got_media",
                 format!("Got <b>{:?}</b>\n\nfile_id: <code>{}</code>",
                     media.file_type, &media.file_id[..20.min(media.file_id.len())])
@@ -477,7 +484,7 @@ async fn main() {
         }))
 
         // === INLINE MODE ===
-        .on_inline(|ctx, query, offset| Box::pin(async move {
+        .on_inline(handler!(ctx, query, offset => {
             let all: Vec<InlineQueryResult> = (0..35).map(|i| {
                 let text = if query.is_empty() {
                     format!("Result #{}", i + 1)
@@ -526,12 +533,12 @@ async fn main() {
             ).await
         }))
 
-        .on_chosen_inline(|ctx| Box::pin(async move {
+        .on_chosen_inline(handler!(ctx => {
             tracing::info!(result_id = ?ctx.chosen_inline_result_id(), "chosen inline result");
             Ok(())
         }))
 
-        .callback("inline_edit", |ctx| Box::pin(async move {
+        .callback("inline_edit", handler!(ctx => {
             // Works in both private and inline mode
             ctx.navigate(Screen::text("inline_edited", "<b>Edited via callback!</b>\nThis works in inline mode too.")
                 .keyboard(|kb| kb.button_row("Edit again", "inline_edit"))
@@ -540,14 +547,14 @@ async fn main() {
         }))
 
         // === MESSAGE EDITED ===
-        .on_message_edited(|ctx, text| Box::pin(async move {
+        .on_message_edited(handler!(ctx, text => {
             ctx.reply(Screen::reply_text(
                 format!("You edited a message to: <code>{}</code>", blazegram::markup::escape(&text))
             )).await
         }))
 
         // === ANY TEXT (catch-all) ===
-        .on_any_text(|ctx, text| Box::pin(async move {
+        .on_any_text(handler!(ctx, text => {
             // Only fires when no screen-specific on_input matches
             ctx.reply(Screen::reply_text(
                 format!("Echo: {}", blazegram::markup::escape(&text))
@@ -555,17 +562,17 @@ async fn main() {
         }))
 
         // === UNRECOGNIZED ===
-        .on_unrecognized(|ctx| Box::pin(async move {
+        .on_unrecognized(handler!(ctx => {
             ctx.notify_temp("Unknown input — try /start", std::time::Duration::from_secs(3)).await
         }))
 
         // === MEMBER EVENTS ===
-        .on_member_joined(|ctx| Box::pin(async move {
+        .on_member_joined(handler!(ctx => {
             let name = &ctx.user.first_name;
             ctx.send_text(format!("Welcome, {}!", blazegram::markup::escape(name))).await?;
             Ok(())
         }))
-        .on_member_left(|ctx| Box::pin(async move {
+        .on_member_left(handler!(ctx => {
             let name = &ctx.user.first_name;
             ctx.send_text(format!("Goodbye, {}.", blazegram::markup::escape(name))).await?;
             Ok(())
@@ -580,42 +587,73 @@ async fn main() {
 fn main_menu(ctx: &Ctx) -> Screen {
     let name = blazegram::markup::escape(&ctx.user.first_name);
     let welcome = ctx.t_with("welcome", &[("name", &name)]);
-    Screen::text("menu", format!(
-        "<b>{}</b>\n\n{}\n\n<i>Blazegram v0.3.0 showcase</i>",
-        welcome, ctx.t("pick")
-    ))
-    .keyboard(|kb| kb
-        // Row 1: core
-        .button("Counter", "counter").button("Navigation", "nav_demo").row()
-        // Row 2: content
-        .button("Differ", "diff_main").button("Markup", "markup").row()
-        .button("Template", "template").button("Pagination", "paginate").row()
-        // Row 3: modes
-        .button("Progressive", "progressive").button("Reply", "reply_demo").row()
-        // Row 4: features
-        .button("Freeze msg", "freeze_demo").button("Permanent", "permanent").row()
-        .button("Keyboards", "keyboards").button("Multi-msg", "multimsg").row()
-        .button("Photo", "photo").button("Link preview", "linkpreview").row()
-        .button("Protect", "protect").button("Notify", "notify").row()
-        // Row 5: interactive
-        .button("Fun (dice)", "fun").button("React", "react").row()
-        // Row 6: input
-        .button("Text input", "ask_input").button("Media input", "ask_media").row()
-        // Row 7: form
-        .button_row("Form wizard", "form")
-        // Row 8: stats
-        .button_row("/stats", "show_stats")
+    Screen::text(
+        "menu",
+        format!(
+            "<b>{}</b>\n\n{}\n\n<i>Blazegram v0.3.0 showcase</i>",
+            welcome,
+            ctx.t("pick")
+        ),
     )
+    .keyboard(|kb| {
+        kb
+            // Row 1: core
+            .button("Counter", "counter")
+            .button("Navigation", "nav_demo")
+            .row()
+            // Row 2: content
+            .button("Differ", "diff_main")
+            .button("Markup", "markup")
+            .row()
+            .button("Template", "template")
+            .button("Pagination", "paginate")
+            .row()
+            // Row 3: modes
+            .button("Progressive", "progressive")
+            .button("Reply", "reply_demo")
+            .row()
+            // Row 4: features
+            .button("Freeze msg", "freeze_demo")
+            .button("Permanent", "permanent")
+            .row()
+            .button("Keyboards", "keyboards")
+            .button("Multi-msg", "multimsg")
+            .row()
+            .button("Photo", "photo")
+            .button("Link preview", "linkpreview")
+            .row()
+            .button("Protect", "protect")
+            .button("Notify", "notify")
+            .row()
+            // Row 5: interactive
+            .button("Fun (dice)", "fun")
+            .button("React", "react")
+            .row()
+            // Row 6: input
+            .button("Text input", "ask_input")
+            .button("Media input", "ask_media")
+            .row()
+            // Row 7: form
+            .button_row("Form wizard", "form")
+            // Row 8: stats
+            .button_row("/stats", "show_stats")
+    })
     .build()
 }
 
 fn counter_screen(count: i64) -> Screen {
-    Screen::text("counter", format!("<b>Counter</b>\n\nValue: <code>{}</code>", count))
-        .keyboard(|kb| kb
-            .button("-1", "dec").button("Reset", "reset").button("+1", "inc").row()
+    Screen::text(
+        "counter",
+        format!("<b>Counter</b>\n\nValue: <code>{}</code>", count),
+    )
+    .keyboard(|kb| {
+        kb.button("-1", "dec")
+            .button("Reset", "reset")
+            .button("+1", "inc")
+            .row()
             .nav_back("menu")
-        )
-        .build()
+    })
+    .build()
 }
 
 fn make_page(pag: &Paginator<String>) -> Screen {

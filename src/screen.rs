@@ -4,13 +4,17 @@ use crate::types::*;
 /// A screen — the atomic unit of UI. What the user sees right now.
 #[derive(Debug, Clone)]
 pub struct Screen {
+    /// Unique identifier for this screen (used by the differ and nav stack).
     pub id: ScreenId,
+    /// The messages that make up this screen (usually one, but multi-message screens are supported).
     pub messages: Vec<ScreenMessage>,
+    /// If set, the screen expects user input of this kind.
     pub input: Option<InputSpec>,
+    /// Show a "typing…" (or similar) indicator before sending.
     pub typing_action: Option<ChatAction>,
     /// Protect content from forwarding/saving.
     pub protect_content: bool,
-    /// Reply keyboard (bottom keyboard). None = don't change, Some(Remove) = remove.
+    /// Reply keyboard (bottom keyboard). `None` = don’t change, `Some(Remove)` = remove.
     pub reply_keyboard: Option<ReplyKeyboardAction>,
     /// Reply to a specific message.
     pub reply_to: Option<MessageId>,
@@ -21,28 +25,41 @@ pub struct Screen {
 pub enum ReplyKeyboardAction {
     /// Show a reply keyboard with these buttons.
     Show {
+        /// Button rows (outer = rows, inner = buttons in a row).
         rows: Vec<Vec<ReplyButton>>,
+        /// Resize the keyboard to fit the buttons (instead of full width).
         resize: bool,
+        /// Hide the keyboard after the user presses a button.
         one_time: bool,
+        /// Placeholder text shown in the input field while the keyboard is active.
         placeholder: Option<String>,
     },
     /// Remove the reply keyboard.
     Remove,
 }
 
+/// A single button on the reply (bottom) keyboard.
 #[derive(Debug, Clone)]
 pub struct ReplyButton {
+    /// Button label.
     pub text: String,
+    /// Pressing the button shares the user’s phone number.
     pub request_contact: bool,
+    /// Pressing the button shares the user’s current location.
     pub request_location: bool,
 }
 
+/// A single message within a [`Screen`].
+///
+/// Multi-message screens contain multiple `ScreenMessage` entries.
 #[derive(Debug, Clone)]
 pub struct ScreenMessage {
+    /// The content to be sent (text, photo, video, etc.).
     pub content: MessageContent,
 }
 
 impl Screen {
+    /// Create a multi-message screen builder with the given ID.
     pub fn builder(id: impl Into<ScreenId>) -> ScreenBuilder {
         ScreenBuilder {
             id: id.into(),
@@ -69,6 +86,10 @@ impl Screen {
 
 // ─── Screen Builder ───
 
+/// Step-by-step builder for assembling a [`Screen`].
+///
+/// Start with [`Screen::builder`] or [`Screen::text`], chain messages and
+/// options, then call [`.build()`](Self::build).
 pub struct ScreenBuilder {
     id: ScreenId,
     messages: Vec<ScreenMessage>,
@@ -82,6 +103,7 @@ pub struct ScreenBuilder {
 }
 
 impl ScreenBuilder {
+    /// Add a text message to the screen.
     pub fn text(self, text: impl Into<String>) -> ScreenTextBuilder {
         ScreenTextBuilder {
             parent: self,
@@ -92,6 +114,7 @@ impl ScreenBuilder {
         }
     }
 
+    /// Add a text message processed through the [`markup`](crate::markup) shorthand engine.
     pub fn markup(self, text: impl Into<String>) -> ScreenTextBuilder {
         let processed = crate::markup::render(&text.into());
         ScreenTextBuilder {
@@ -103,6 +126,7 @@ impl ScreenBuilder {
         }
     }
 
+    /// Add a photo message to the screen.
     pub fn photo(self, source: impl Into<FileSource>) -> ScreenMediaBuilder {
         ScreenMediaBuilder {
             parent: self,
@@ -115,6 +139,7 @@ impl ScreenBuilder {
         }
     }
 
+    /// Add a video message to the screen.
     pub fn video(self, source: impl Into<FileSource>) -> ScreenMediaBuilder {
         ScreenMediaBuilder {
             parent: self,
@@ -127,6 +152,7 @@ impl ScreenBuilder {
         }
     }
 
+    /// Add a document message to the screen.
     pub fn document(self, source: impl Into<FileSource>) -> ScreenMediaBuilder {
         ScreenMediaBuilder {
             parent: self,
@@ -139,6 +165,7 @@ impl ScreenBuilder {
         }
     }
 
+    /// Expect free-form text input from the user.
     pub fn expect_text(self) -> ScreenInputBuilder {
         ScreenInputBuilder {
             parent: self,
@@ -147,11 +174,13 @@ impl ScreenBuilder {
         }
     }
 
+    /// Expect a photo from the user.
     pub fn expect_photo(mut self) -> Self {
         self.input = Some(InputSpec::Photo);
         self
     }
 
+    /// Expect a choice from a fixed list of options (shown as a reply keyboard).
     pub fn expect_choice(mut self, options: Vec<String>) -> Self {
         self.input = Some(InputSpec::Choice { options });
         self
@@ -164,11 +193,13 @@ impl ScreenBuilder {
         self
     }
 
+    /// Show a “typing…” indicator before sending this screen.
     pub fn typing(mut self) -> Self {
         self.typing_action = Some(ChatAction::Typing);
         self
     }
 
+    /// Prevent the user from forwarding or saving the content.
     pub fn protect_content(mut self) -> Self {
         self.protect_content = true;
         self
@@ -177,13 +208,18 @@ impl ScreenBuilder {
     /// Set a reply (bottom) keyboard.
     pub fn reply_keyboard(mut self, rows: Vec<Vec<&str>>) -> Self {
         self.reply_keyboard = Some(ReplyKeyboardAction::Show {
-            rows: rows.into_iter().map(|row| {
-                row.into_iter().map(|t| ReplyButton {
-                    text: t.to_string(),
-                    request_contact: false,
-                    request_location: false,
-                }).collect()
-            }).collect(),
+            rows: rows
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|t| ReplyButton {
+                            text: t.to_string(),
+                            request_contact: false,
+                            request_location: false,
+                        })
+                        .collect()
+                })
+                .collect(),
             resize: true,
             one_time: false,
             placeholder: None,
@@ -203,6 +239,7 @@ impl ScreenBuilder {
         self
     }
 
+    /// Finalize the builder and produce a [`Screen`].
     pub fn build(self) -> Screen {
         if self.messages.is_empty() {
             tracing::warn!(
@@ -225,6 +262,7 @@ impl ScreenBuilder {
 
 // ─── Text sub-builder ───
 
+/// Sub-builder for a text message within a screen.
 pub struct ScreenTextBuilder {
     parent: ScreenBuilder,
     text: String,
@@ -234,16 +272,19 @@ pub struct ScreenTextBuilder {
 }
 
 impl ScreenTextBuilder {
+    /// Set the parse mode (default: HTML).
     pub fn parse_mode(mut self, pm: ParseMode) -> Self {
         self.parse_mode = pm;
         self
     }
 
+    /// Enable or disable URL link previews.
     pub fn link_preview(mut self, lp: LinkPreview) -> Self {
         self.link_preview = lp;
         self
     }
 
+    /// Attach an inline keyboard via a builder closure.
     pub fn keyboard(mut self, f: impl FnOnce(KeyboardBuilder) -> KeyboardBuilder) -> Self {
         let kb_builder = match &self.parent.lang {
             Some(lang) => KeyboardBuilder::with_lang(lang.clone()),
@@ -267,6 +308,7 @@ impl ScreenTextBuilder {
         self.parent
     }
 
+    /// Finalize this text message and produce a [`Screen`].
     pub fn build(self) -> Screen {
         self.done().build()
     }
@@ -276,16 +318,19 @@ impl ScreenTextBuilder {
         self.done()
     }
 
+    /// Prevent forwarding / saving content.
     pub fn protect_content(mut self) -> Self {
         self.parent.protect_content = true;
         self
     }
 
+    /// Set a reply keyboard (delegates to parent builder).
     pub fn reply_keyboard(mut self, rows: Vec<Vec<&str>>) -> Self {
         self.parent = self.parent.reply_keyboard(rows);
         self
     }
 
+    /// Remove the reply keyboard (delegates to parent builder).
     pub fn remove_reply_keyboard(mut self) -> Self {
         self.parent = self.parent.remove_reply_keyboard();
         self
@@ -314,6 +359,7 @@ impl ScreenTextBuilder {
 
 // ─── Media sub-builder ───
 
+/// Sub-builder for a media (photo / video / document) message within a screen.
 pub struct ScreenMediaBuilder {
     parent: ScreenBuilder,
     media_type: ContentType,
@@ -325,16 +371,19 @@ pub struct ScreenMediaBuilder {
 }
 
 impl ScreenMediaBuilder {
+    /// Set the media caption.
     pub fn caption(mut self, cap: impl Into<String>) -> Self {
         self.caption = Some(cap.into());
         self
     }
 
+    /// Mark the media as a spoiler (click to reveal).
     pub fn spoiler(mut self) -> Self {
         self.spoiler = true;
         self
     }
 
+    /// Attach an inline keyboard via a builder closure.
     pub fn keyboard(mut self, f: impl FnOnce(KeyboardBuilder) -> KeyboardBuilder) -> Self {
         let kb_builder = match &self.parent.lang {
             Some(lang) => KeyboardBuilder::with_lang(lang.clone()),
@@ -345,6 +394,7 @@ impl ScreenMediaBuilder {
         self
     }
 
+    /// Finish this media message and return to the parent [`ScreenBuilder`].
     pub fn done(mut self) -> ScreenBuilder {
         let content = match self.media_type {
             ContentType::Photo => MessageContent::Photo {
@@ -374,10 +424,12 @@ impl ScreenMediaBuilder {
         self.parent
     }
 
+    /// Finish this media message and produce a [`Screen`].
     pub fn build(self) -> Screen {
         self.done().build()
     }
 
+    /// Chain: add a text message after this media message.
     pub fn text(self, text: impl Into<String>) -> ScreenTextBuilder {
         self.done().text(text)
     }
@@ -385,6 +437,7 @@ impl ScreenMediaBuilder {
 
 // ─── Input sub-builder ───
 
+/// Sub-builder for configuring expected text input on a screen.
 pub struct ScreenInputBuilder {
     parent: ScreenBuilder,
     validator: Option<ValidatorFn>,
@@ -392,6 +445,7 @@ pub struct ScreenInputBuilder {
 }
 
 impl ScreenInputBuilder {
+    /// Set a validation function that rejects bad input with an error message.
     pub fn validator(
         mut self,
         f: impl Fn(&str) -> Result<(), String> + Send + Sync + 'static,
@@ -400,11 +454,13 @@ impl ScreenInputBuilder {
         self
     }
 
+    /// Set placeholder text shown in the input field.
     pub fn placeholder(mut self, p: impl Into<String>) -> Self {
         self.placeholder = Some(p.into());
         self
     }
 
+    /// Finalize and produce a [`Screen`] expecting text input.
     pub fn build(mut self) -> Screen {
         self.parent.input = Some(InputSpec::Text {
             validator: self.validator,
@@ -413,6 +469,7 @@ impl ScreenInputBuilder {
         self.parent.build()
     }
 
+    /// Finish configuring input and return to the parent [`ScreenBuilder`].
     pub fn done(mut self) -> ScreenBuilder {
         self.parent.input = Some(InputSpec::Text {
             validator: self.validator,

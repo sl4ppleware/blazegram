@@ -14,8 +14,11 @@ use crate::types::*;
 /// Result of a broadcast operation.
 #[derive(Debug, Clone, Default)]
 pub struct BroadcastResult {
+    /// Sent.
     pub sent: u32,
+    /// Number of chats that blocked the bot.
     pub blocked: u32,
+    /// Number of delivery failures.
     pub failed: u32,
 }
 
@@ -43,16 +46,19 @@ impl Default for BroadcastOptions {
 }
 
 impl BroadcastOptions {
+    /// Hideable.
     pub fn hideable(mut self) -> Self {
         self.hideable = true;
         self
     }
 
+    /// Delay.
     pub fn delay(mut self, d: Duration) -> Self {
         self.delay = d;
         self
     }
 
+    /// Dismiss text.
     pub fn dismiss_text(mut self, t: impl Into<String>) -> Self {
         self.dismiss_text = t.into();
         self
@@ -76,7 +82,10 @@ pub async fn broadcast(
             if opts.hideable {
                 content = add_dismiss_button(content, &opts.dismiss_text, &opts.dismiss_callback);
             }
-            match bot.send_message(chat_id, content.clone(), SendOptions::default()).await {
+            match bot
+                .send_message(chat_id, content.clone(), SendOptions::default())
+                .await
+            {
                 Ok(_) => result.sent += 1,
                 Err(ApiError::BotBlocked) => {
                     result.blocked += 1;
@@ -85,7 +94,10 @@ pub async fn broadcast(
                 Err(ApiError::TooManyRequests { retry_after }) => {
                     sleep(Duration::from_secs(retry_after as u64 + 1)).await;
                     // Retry once with the same content (including dismiss button)
-                    match bot.send_message(chat_id, content, SendOptions::default()).await {
+                    match bot
+                        .send_message(chat_id, content, SendOptions::default())
+                        .await
+                    {
                         Ok(_) => result.sent += 1,
                         Err(ApiError::BotBlocked | ApiError::ChatNotFound) => {
                             result.blocked += 1;
@@ -120,21 +132,43 @@ pub async fn broadcast_text(
 
 fn add_dismiss_button(content: MessageContent, text: &str, callback: &str) -> MessageContent {
     match content {
-        MessageContent::Text { text: t, parse_mode, keyboard, link_preview } => {
+        MessageContent::Text {
+            text: t,
+            parse_mode,
+            keyboard,
+            link_preview,
+        } => {
             let mut kb = keyboard.unwrap_or_else(|| InlineKeyboard { rows: vec![] });
             kb.rows.push(vec![crate::keyboard::InlineButton {
                 text: text.to_string(),
                 action: crate::keyboard::ButtonAction::Callback(callback.to_string()),
             }]);
-            MessageContent::Text { text: t, parse_mode, keyboard: Some(kb), link_preview }
+            MessageContent::Text {
+                text: t,
+                parse_mode,
+                keyboard: Some(kb),
+                link_preview,
+            }
         }
-        MessageContent::Photo { source, caption, parse_mode, keyboard, spoiler } => {
+        MessageContent::Photo {
+            source,
+            caption,
+            parse_mode,
+            keyboard,
+            spoiler,
+        } => {
             let mut kb = keyboard.unwrap_or_else(|| InlineKeyboard { rows: vec![] });
             kb.rows.push(vec![crate::keyboard::InlineButton {
                 text: text.to_string(),
                 action: crate::keyboard::ButtonAction::Callback(callback.to_string()),
             }]);
-            MessageContent::Photo { source, caption, parse_mode, keyboard: Some(kb), spoiler }
+            MessageContent::Photo {
+                source,
+                caption,
+                parse_mode,
+                keyboard: Some(kb),
+                spoiler,
+            }
         }
         other => other, // sticker, location etc — no keyboard support
     }

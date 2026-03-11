@@ -2,8 +2,8 @@
 //!
 //! Works in all modes: private chat (full differ), group (inline edit), inline message.
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +15,20 @@ use crate::i18n;
 use crate::screen::Screen;
 use crate::types::*;
 
+/// Payment context fields, populated only for payment-related updates.
+#[derive(Debug, Clone, Default)]
+pub struct PaymentContext {
+    /// Pre-checkout query ID.
+    pub query_id: Option<String>,
+    /// Invoice payload string.
+    pub payload: Option<String>,
+    /// Currency code (e.g. "USD", "XTR" for Stars).
+    pub currency: Option<String>,
+    /// Total amount in smallest units (cents, stars, etc.).
+    pub total_amount: Option<i64>,
+}
+
+/// The handler context — your main interface to Telegram inside a handler.
 pub struct Ctx {
     pub(crate) state: ChatState,
     pub(crate) bot: Arc<dyn BotApi>,
@@ -25,30 +39,28 @@ pub struct Ctx {
     pub(crate) chosen_inline_result_id: Option<String>,
     pub(crate) incoming_message_id: Option<MessageId>,
 
-    /// Pre-checkout query ID (for answering payment pre-checkout).
-    pub(crate) pre_checkout_query_id: Option<String>,
-    /// Payment payload (from PreCheckoutQuery or SuccessfulPayment).
-    pub(crate) payment_payload: Option<String>,
-    /// Payment currency.
-    pub(crate) payment_currency: Option<String>,
-    /// Payment total amount (in smallest units, e.g. cents).
-    pub(crate) payment_total_amount: Option<i64>,
+    /// Payment context (only populated for payment updates).
+    pub payment: PaymentContext,
 
     /// How this Ctx operates (auto-detected from update source).
     pub mode: CtxMode,
 
-    // Public fields for easy access
+    /// Chat this handler is running for.
     pub chat_id: ChatId,
+    /// User who triggered the update.
     pub user: UserInfo,
 
     /// Raw grammers client (for direct MTProto access).
     pub(crate) grammers_client: Option<grammers_client::Client>,
     /// Shared peer cache from GrammersAdapter.
-    pub(crate) peer_cache: Option<std::sync::Arc<dashmap::DashMap<i64, grammers_session::types::PeerRef>>>,
+    pub(crate) peer_cache:
+        Option<std::sync::Arc<dashmap::DashMap<i64, grammers_session::types::PeerRef>>>,
 
     /// Abort handle for active progressive task (if any).
-    /// navigate() aborts this before diffing to prevent concurrent edits.
     pub(crate) progressive_abort: Option<tokio::task::AbortHandle>,
+
+    /// Maximum number of keys allowed in `state.data`.
+    pub(crate) max_state_keys: usize,
 }
 
 impl Ctx {
@@ -68,16 +80,14 @@ impl Ctx {
             inline_query_id: None,
             chosen_inline_result_id: None,
             incoming_message_id: None,
-            pre_checkout_query_id: None,
-            payment_payload: None,
-            payment_currency: None,
-            payment_total_amount: None,
+            payment: PaymentContext::default(),
             mode: CtxMode::Private,
             chat_id,
             user,
             grammers_client: None,
             peer_cache: None,
             progressive_abort: None,
+            max_state_keys: 1000,
         }
     }
 
@@ -144,6 +154,18 @@ impl Ctx {
         self.state.pending_user_messages.clear();
         self.state.current_screen = screen.id;
 
+        // Cap tracked messages to prevent unbounded growth.
+        const MAX_TRACKED: usize = 100;
+        if self.state.active_bot_messages.len() > MAX_TRACKED {
+            let excess = self.state.active_bot_messages.len() - MAX_TRACKED;
+            self.state.active_bot_messages.drain(..excess);
+            tracing::warn!(
+                chat_id = self.chat_id.0,
+                evicted = excess,
+                "active_bot_messages exceeded {MAX_TRACKED}, oldest evicted"
+            );
+        }
+
         tracing::debug!(
             chat_id = self.chat_id.0,
             tracked_after = self.state.active_bot_messages.len(),
@@ -154,35 +176,58 @@ impl Ctx {
     }
 
     /// Group navigation — edit the triggering message in-place.
-    async fn navigate_group(&mut self, screen: Screen, trigger: Option<MessageId>) -> HandlerResult {
-        let msg = screen.messages.first().ok_or_else(|| {
-            HandlerError::Internal(anyhow::anyhow!("screen has no messages"))
-        })?;
+    async fn navigate_group(
+        &mut self,
+        screen: Screen,
+        trigger: Option<MessageId>,
+    ) -> HandlerResult {
+        let msg = screen
+            .messages
+            .first()
+            .ok_or_else(|| HandlerError::Internal(anyhow::anyhow!("screen has no messages")))?;
 
         if let Some(msg_id) = trigger {
             // Edit the existing message
             match &msg.content {
-                MessageContent::Text { text, parse_mode, keyboard, link_preview } => {
-                    self.bot.edit_message_text(
-                        self.chat_id, msg_id, text.clone(), *parse_mode,
-                        keyboard.clone(), matches!(link_preview, LinkPreview::Enabled),
-                    ).await.map_err(HandlerError::Api)?;
+                MessageContent::Text {
+                    text,
+                    parse_mode,
+                    keyboard,
+                    link_preview,
+                } => {
+                    self.bot
+                        .edit_message_text(
+                            self.chat_id,
+                            msg_id,
+                            text.clone(),
+                            *parse_mode,
+                            keyboard.clone(),
+                            matches!(link_preview, LinkPreview::Enabled),
+                        )
+                        .await
+                        .map_err(HandlerError::Api)?;
                 }
                 other => {
                     let kb = other.keyboard();
-                    self.bot.edit_message_media(
-                        self.chat_id, msg_id, other.clone(), kb,
-                    ).await.map_err(HandlerError::Api)?;
+                    self.bot
+                        .edit_message_media(self.chat_id, msg_id, other.clone(), kb)
+                        .await
+                        .map_err(HandlerError::Api)?;
                 }
             }
         } else {
             // No trigger message (e.g., /command in group) — send new
-            self.bot.send_message(
-                self.chat_id, msg.content.clone(), SendOptions {
-                    reply_to: screen.reply_to,
-                    ..Default::default()
-                },
-            ).await.map_err(HandlerError::Api)?;
+            self.bot
+                .send_message(
+                    self.chat_id,
+                    msg.content.clone(),
+                    SendOptions {
+                        reply_to: screen.reply_to,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(HandlerError::Api)?;
         }
 
         self.state.current_screen = screen.id;
@@ -191,57 +236,94 @@ impl Ctx {
 
     /// Inline navigation — edit the inline message.
     async fn navigate_inline(&mut self, screen: Screen, inline_message_id: &str) -> HandlerResult {
-        let msg = screen.messages.first().ok_or_else(|| {
-            HandlerError::Internal(anyhow::anyhow!("screen has no messages"))
-        })?;
+        let msg = screen
+            .messages
+            .first()
+            .ok_or_else(|| HandlerError::Internal(anyhow::anyhow!("screen has no messages")))?;
 
         let client = self.require_client()?;
 
         // Parse the packed inline message ID (base64-encoded TL-serialized)
-        let id_bytes = data_encoding::BASE64URL_NOPAD.decode(inline_message_id.as_bytes())
+        let id_bytes = data_encoding::BASE64URL_NOPAD
+            .decode(inline_message_id.as_bytes())
             .or_else(|_| data_encoding::BASE64.decode(inline_message_id.as_bytes()))
-            .map_err(|_| HandlerError::Internal(anyhow::anyhow!("invalid inline_message_id encoding")))?;
+            .map_err(|_| {
+                HandlerError::Internal(anyhow::anyhow!("invalid inline_message_id encoding"))
+            })?;
 
         use grammers_client::tl;
         use grammers_tl_types::Deserializable;
 
         // Deserialize using TL — the bytes include constructor ID from serialization
         let id_tl = tl::enums::InputBotInlineMessageId::deserialize(
-            &mut grammers_tl_types::Cursor::from_slice(&id_bytes)
-        ).map_err(|e| HandlerError::Internal(anyhow::anyhow!("failed to deserialize inline_message_id: {e}")));
+            &mut grammers_tl_types::Cursor::from_slice(&id_bytes),
+        )
+        .map_err(|e| {
+            HandlerError::Internal(anyhow::anyhow!(
+                "failed to deserialize inline_message_id: {e}"
+            ))
+        });
 
         let id_tl = match id_tl {
             Ok(v) => v,
             Err(_) => {
                 // Fallback: try raw byte parsing (no constructor prefix)
                 if id_bytes.len() >= 24 {
-                    let dc = i32::from_le_bytes(id_bytes[0..4].try_into().unwrap());
-                    let owner = i64::from_le_bytes(id_bytes[4..12].try_into().unwrap());
-                    let msg_id = i32::from_le_bytes(id_bytes[12..16].try_into().unwrap());
-                    let ah = i64::from_le_bytes(id_bytes[16..24].try_into().unwrap());
+                    // SAFETY: length is checked above; slice sizes match the target arrays.
+                    let dc =
+                        i32::from_le_bytes(id_bytes[0..4].try_into().expect("4 bytes for i32"));
+                    let owner =
+                        i64::from_le_bytes(id_bytes[4..12].try_into().expect("8 bytes for i64"));
+                    let msg_id =
+                        i32::from_le_bytes(id_bytes[12..16].try_into().expect("4 bytes for i32"));
+                    let ah =
+                        i64::from_le_bytes(id_bytes[16..24].try_into().expect("8 bytes for i64"));
                     tl::types::InputBotInlineMessageId64 {
-                        dc_id: dc, owner_id: owner, id: msg_id, access_hash: ah,
-                    }.into()
+                        dc_id: dc,
+                        owner_id: owner,
+                        id: msg_id,
+                        access_hash: ah,
+                    }
+                    .into()
                 } else if id_bytes.len() >= 20 {
-                    let dc = i32::from_le_bytes(id_bytes[0..4].try_into().unwrap());
-                    let msg_id = i64::from_le_bytes(id_bytes[4..12].try_into().unwrap());
-                    let ah = i64::from_le_bytes(id_bytes[12..20].try_into().unwrap());
+                    // SAFETY: length is checked above; slice sizes match the target arrays.
+                    let dc =
+                        i32::from_le_bytes(id_bytes[0..4].try_into().expect("4 bytes for i32"));
+                    let msg_id =
+                        i64::from_le_bytes(id_bytes[4..12].try_into().expect("8 bytes for i64"));
+                    let ah =
+                        i64::from_le_bytes(id_bytes[12..20].try_into().expect("8 bytes for i64"));
                     tl::types::InputBotInlineMessageId {
-                        dc_id: dc, id: msg_id, access_hash: ah,
-                    }.into()
+                        dc_id: dc,
+                        id: msg_id,
+                        access_hash: ah,
+                    }
+                    .into()
                 } else {
-                    return Err(HandlerError::Internal(anyhow::anyhow!("inline_message_id too short ({} bytes)", id_bytes.len())));
+                    return Err(HandlerError::Internal(anyhow::anyhow!(
+                        "inline_message_id too short ({} bytes)",
+                        id_bytes.len()
+                    )));
                 }
             }
         };
 
         // Build text + entities
         let (text, no_webpage, reply_markup) = match &msg.content {
-            MessageContent::Text { text, parse_mode: _, keyboard, link_preview } => {
+            MessageContent::Text {
+                text,
+                parse_mode: _,
+                keyboard,
+                link_preview,
+            } => {
                 let markup = keyboard.as_ref().map(|kb| {
                     crate::grammers_adapter::GrammersAdapter::to_inline_markup_pub(kb).raw
                 });
-                (text.clone(), !matches!(link_preview, LinkPreview::Enabled), markup)
+                (
+                    text.clone(),
+                    !matches!(link_preview, LinkPreview::Enabled),
+                    markup,
+                )
             }
             _ => {
                 return Err(HandlerError::Internal(anyhow::anyhow!(
@@ -250,15 +332,22 @@ impl Ctx {
             }
         };
 
-        client.invoke(&tl::functions::messages::EditInlineBotMessage {
-            no_webpage,
-            invert_media: false,
-            id: id_tl,
-            message: Some(text),
-            media: None,
-            reply_markup,
-            entities: None,
-        }).await.map_err(|e| HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(e)))?;
+        client
+            .invoke(&tl::functions::messages::EditInlineBotMessage {
+                no_webpage,
+                invert_media: false,
+                id: id_tl,
+                message: Some(text),
+                media: None,
+                reply_markup,
+                entities: None,
+            })
+            .await
+            .map_err(|e| {
+                HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(
+                    e,
+                ))
+            })?;
 
         self.state.current_screen = screen.id;
         Ok(())
@@ -272,7 +361,9 @@ impl Ctx {
         if self.state.screen_stack.len() >= 20 {
             self.state.screen_stack.remove(0);
         }
-        self.state.screen_stack.push(self.state.current_screen.clone());
+        self.state
+            .screen_stack
+            .push(self.state.current_screen.clone());
         self.navigate(screen).await
     }
 
@@ -300,17 +391,23 @@ impl Ctx {
     /// Send a message that is NOT tracked by the differ.
     /// It will persist across navigate() calls — the framework won't delete it.
     pub async fn send_permanent(&self, screen: Screen) -> Result<SentMessage, HandlerError> {
-        let msg = screen.messages.first().ok_or_else(|| {
-            HandlerError::Internal(anyhow::anyhow!("screen has no messages"))
-        })?;
-        let sent = self.bot.send_message(
-            self.chat_id, msg.content.clone(),
-            SendOptions {
-                protect_content: screen.protect_content,
-                reply_to: screen.reply_to,
-                ..Default::default()
-            },
-        ).await.map_err(HandlerError::Api)?;
+        let msg = screen
+            .messages
+            .first()
+            .ok_or_else(|| HandlerError::Internal(anyhow::anyhow!("screen has no messages")))?;
+        let sent = self
+            .bot
+            .send_message(
+                self.chat_id,
+                msg.content.clone(),
+                SendOptions {
+                    protect_content: screen.protect_content,
+                    reply_to: screen.reply_to,
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(HandlerError::Api)?;
         Ok(sent)
     }
 
@@ -336,7 +433,10 @@ impl Ctx {
         self.state.pending_user_messages.clear();
 
         // Inline mode — always edit the inline message
-        if let CtxMode::Inline { ref inline_message_id } = self.mode {
+        if let CtxMode::Inline {
+            ref inline_message_id,
+        } = self.mode
+        {
             let imid = inline_message_id.clone();
             return self.navigate_inline(screen, &imid).await;
         }
@@ -355,15 +455,26 @@ impl Ctx {
             Some(msg_id) => {
                 // Edit the existing reply message
                 match &msg.content {
-                    MessageContent::Text { text, parse_mode, keyboard, link_preview } => {
-                        match self.bot.edit_message_text(
-                            self.chat_id, msg_id,
-                            text.clone(), *parse_mode,
-                            keyboard.clone(),
-                            matches!(link_preview, LinkPreview::Enabled),
-                        ).await {
-                            Ok(()) => {},
-                            Err(crate::error::ApiError::MessageNotModified) => {},
+                    MessageContent::Text {
+                        text,
+                        parse_mode,
+                        keyboard,
+                        link_preview,
+                    } => {
+                        match self
+                            .bot
+                            .edit_message_text(
+                                self.chat_id,
+                                msg_id,
+                                text.clone(),
+                                *parse_mode,
+                                keyboard.clone(),
+                                matches!(link_preview, LinkPreview::Enabled),
+                            )
+                            .await
+                        {
+                            Ok(()) => {}
+                            Err(crate::error::ApiError::MessageNotModified) => {}
                             Err(e) => return Err(HandlerError::Api(e)),
                         }
                     }
@@ -373,13 +484,18 @@ impl Ctx {
                     | MessageContent::Video { keyboard, .. } => {
                         // Use edit_message_media for full media replacement
                         // (handles both media swap and caption-only changes)
-                        match self.bot.edit_message_media(
-                            self.chat_id, msg_id,
-                            msg.content.clone(),
-                            keyboard.clone(),
-                        ).await {
-                            Ok(()) => {},
-                            Err(crate::error::ApiError::MessageNotModified) => {},
+                        match self
+                            .bot
+                            .edit_message_media(
+                                self.chat_id,
+                                msg_id,
+                                msg.content.clone(),
+                                keyboard.clone(),
+                            )
+                            .await
+                        {
+                            Ok(()) => {}
+                            Err(crate::error::ApiError::MessageNotModified) => {}
                             Err(e) => return Err(HandlerError::Api(e)),
                         }
                     }
@@ -393,15 +509,25 @@ impl Ctx {
             }
             None => {
                 // Send a new reply message
-                let sent = self.bot.send_message(
-                    self.chat_id, msg.content.clone(),
-                    SendOptions {
-                        protect_content: screen.protect_content,
-                        reply_to: screen.reply_to,
-                        ..Default::default()
-                    },
-                ).await.map_err(HandlerError::Api)?;
+                let sent = self
+                    .bot
+                    .send_message(
+                        self.chat_id,
+                        msg.content.clone(),
+                        SendOptions {
+                            protect_content: screen.protect_content,
+                            reply_to: screen.reply_to,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(HandlerError::Api)?;
                 self.state.reply_message_id = Some(sent.message_id);
+                // Track reply messages so navigate() can clean them up
+                // if the bot switches from reply mode to screen mode.
+                self.state
+                    .active_bot_messages
+                    .push(TrackedMessage::from_content(sent.message_id, &msg.content));
             }
         }
         Ok(())
@@ -437,35 +563,44 @@ impl Ctx {
         let cache = self.peer_cache.as_ref().ok_or_else(|| {
             HandlerError::Internal(anyhow::anyhow!("forward requires peer cache"))
         })?;
-        let from_peer = crate::grammers_adapter::GrammersAdapter::resolve_from_cache(cache, from_chat_id)
-            .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))?;
-        let to_peer = crate::grammers_adapter::GrammersAdapter::resolve_from_cache(cache, self.chat_id)
-            .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))?;
+        let from_peer =
+            crate::grammers_adapter::GrammersAdapter::resolve_from_cache(cache, from_chat_id)
+                .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))?;
+        let to_peer =
+            crate::grammers_adapter::GrammersAdapter::resolve_from_cache(cache, self.chat_id)
+                .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))?;
 
         use grammers_client::tl;
-        client.invoke(&tl::functions::messages::ForwardMessages {
-            silent: false,
-            background: false,
-            with_my_score: false,
-            drop_author: false,
-            drop_media_captions: false,
-            noforwards: false,
-            allow_paid_floodskip: false,
-            from_peer: from_peer.into(),
-            id: vec![message_id.0],
-            random_id: vec![rand_i64()],
-            to_peer: to_peer.into(),
-            top_msg_id: None,
-            reply_to: None,
-            schedule_date: None,
-            schedule_repeat_period: None,
-            send_as: None,
-            quick_reply_shortcut: None,
-            effect: None,
-            video_timestamp: None,
-            allow_paid_stars: None,
-            suggested_post: None,
-        }).await.map_err(|e| HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(e)))?;
+        client
+            .invoke(&tl::functions::messages::ForwardMessages {
+                silent: false,
+                background: false,
+                with_my_score: false,
+                drop_author: false,
+                drop_media_captions: false,
+                noforwards: false,
+                allow_paid_floodskip: false,
+                from_peer: from_peer.into(),
+                id: vec![message_id.0],
+                random_id: vec![rand_i64()],
+                to_peer: to_peer.into(),
+                top_msg_id: None,
+                reply_to: None,
+                schedule_date: None,
+                schedule_repeat_period: None,
+                send_as: None,
+                quick_reply_shortcut: None,
+                effect: None,
+                video_timestamp: None,
+                allow_paid_stars: None,
+                suggested_post: None,
+            })
+            .await
+            .map_err(|e| {
+                HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(
+                    e,
+                ))
+            })?;
 
         Ok(())
     }
@@ -477,10 +612,20 @@ impl Ctx {
         let client = self.require_client()?;
         let peer = self.require_peer()?;
         use grammers_client::tl;
-        client.invoke(&tl::functions::messages::UpdatePinnedMessage {
-            silent: true, unpin: false, pm_oneside: false,
-            peer: peer.into(), id: message_id.0,
-        }).await.map_err(|e| HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(e)))?;
+        client
+            .invoke(&tl::functions::messages::UpdatePinnedMessage {
+                silent: true,
+                unpin: false,
+                pm_oneside: false,
+                peer: peer.into(),
+                id: message_id.0,
+            })
+            .await
+            .map_err(|e| {
+                HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(
+                    e,
+                ))
+            })?;
         Ok(())
     }
 
@@ -489,10 +634,20 @@ impl Ctx {
         let client = self.require_client()?;
         let peer = self.require_peer()?;
         use grammers_client::tl;
-        client.invoke(&tl::functions::messages::UpdatePinnedMessage {
-            silent: true, unpin: true, pm_oneside: false,
-            peer: peer.into(), id: message_id.0,
-        }).await.map_err(|e| HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(e)))?;
+        client
+            .invoke(&tl::functions::messages::UpdatePinnedMessage {
+                silent: true,
+                unpin: true,
+                pm_oneside: false,
+                peer: peer.into(),
+                id: message_id.0,
+            })
+            .await
+            .map_err(|e| {
+                HandlerError::Api(crate::grammers_adapter::GrammersAdapter::convert_error_pub(
+                    e,
+                ))
+            })?;
         Ok(())
     }
 
@@ -514,9 +669,8 @@ impl Ctx {
     }
 
     fn require_peer(&self) -> Result<grammers_session::types::PeerRef, HandlerError> {
-        self.peer_ref().ok_or_else(|| {
-            HandlerError::Api(crate::error::ApiError::ChatNotFound)
-        })
+        self.peer_ref()
+            .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))
     }
 
     // ─── Toasts & Alerts ───
@@ -527,8 +681,10 @@ impl Ctx {
     /// logs a warning and does nothing (Telegram requires a callback query ID).
     pub async fn toast(&mut self, text: impl Into<String>) -> HandlerResult {
         if let Some(cb_id) = self.state.pending_callback_id.take() {
-            self.bot.answer_callback_query(cb_id, Some(text.into()), false)
-                .await.map_err(HandlerError::Api)?;
+            self.bot
+                .answer_callback_query(cb_id, Some(text.into()), false)
+                .await
+                .map_err(HandlerError::Api)?;
         } else {
             tracing::warn!("toast() called outside callback context — no callback query to answer");
         }
@@ -541,8 +697,10 @@ impl Ctx {
     /// logs a warning and does nothing.
     pub async fn alert(&mut self, text: impl Into<String>) -> HandlerResult {
         if let Some(cb_id) = self.state.pending_callback_id.take() {
-            self.bot.answer_callback_query(cb_id, Some(text.into()), true)
-                .await.map_err(HandlerError::Api)?;
+            self.bot
+                .answer_callback_query(cb_id, Some(text.into()), true)
+                .await
+                .map_err(HandlerError::Api)?;
         } else {
             tracing::warn!("alert() called outside callback context — no callback query to answer");
         }
@@ -551,16 +709,63 @@ impl Ctx {
 
     // ─── FSM Data ───
 
+    /// Store a value in the per-chat state under the given key.
+    ///
+    /// The value is serialized to JSON. Panics if the value cannot be
+    /// represented as JSON (e.g. `f64::NAN`). All standard Rust types,
+    /// `serde`-derived structs, and collections serialize without issue.
+    ///
+    /// If the number of keys exceeds `max_state_keys` (default 1000),
+    /// the oldest non-internal key is evicted and a warning is logged.
     pub fn set<V: Serialize>(&mut self, key: &str, value: &V) {
-        self.state.data.insert(key.to_string(), serde_json::to_value(value).unwrap());
+        let val = serde_json::to_value(value).expect("value must be JSON-serializable");
+
+        // If key already exists, just overwrite — no size change.
+        if self.state.data.contains_key(key) {
+            self.state.data.insert(key.to_string(), val);
+            return;
+        }
+
+        // Evict oldest non-internal key if at capacity.
+        if self.state.data.len() >= self.max_state_keys {
+            tracing::warn!(
+                chat_id = self.chat_id.0,
+                keys = self.state.data.len(),
+                max = self.max_state_keys,
+                "state key limit reached — evicting oldest entry"
+            );
+            // Find first key that doesn't start with "__" (internal).
+            let victim = self
+                .state
+                .data
+                .keys()
+                .find(|k| !k.starts_with("__"))
+                .cloned();
+            if let Some(k) = victim {
+                self.state.data.remove(&k);
+            }
+        }
+
+        self.state.data.insert(key.to_string(), val);
     }
 
+    /// Look up a value from per-chat state by key, deserializing into `V`.
+    ///
+    /// Returns `None` if the key does not exist or the stored value cannot
+    /// be deserialized into `V`.
     pub fn get<V: DeserializeOwned>(&self, key: &str) -> Option<V> {
-        self.state.data.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        self.state
+            .data
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
-    pub fn remove(&mut self, key: &str) { self.state.data.remove(key); }
+    /// Remove a value from per-chat state by key. No-op if the key doesn't exist.
+    pub fn remove(&mut self, key: &str) {
+        self.state.data.remove(key);
+    }
 
+    /// Clear all per-chat state data and the navigation stack.
     pub fn clear_data(&mut self) {
         self.state.data.clear();
         self.state.screen_stack.clear();
@@ -568,82 +773,121 @@ impl Ctx {
 
     // ─── Typed State ───
 
+    /// Retrieve the typed per-chat state, or `Default::default()` if not yet set.
     pub fn state<S: DeserializeOwned + Default>(&self) -> S {
         self.get::<S>("__state__").unwrap_or_default()
     }
 
+    /// Replace the typed per-chat state with the given value.
     pub fn set_state<S: Serialize>(&mut self, s: &S) {
         self.set("__state__", s);
     }
 
     // ─── Callback Data ───
 
-    pub fn callback_data(&self) -> Option<&str> { self.callback_data.as_deref() }
+    /// Raw callback data string from the pressed inline button, if any.
+    pub fn callback_data(&self) -> Option<&str> {
+        self.callback_data.as_deref()
+    }
 
+    /// Callback data split by `:`, skipping the first segment (the action name).
+    ///
+    /// For callback data `"pick:a:b"`, returns `["a", "b"]`.
     pub fn callback_params(&self) -> Vec<String> {
-        self.callback_data.as_ref()
+        self.callback_data
+            .as_ref()
             .map(|d| d.split(':').skip(1).map(String::from).collect())
             .unwrap_or_default()
     }
 
+    /// First callback parameter (second segment after `:`), if any.
+    ///
+    /// For callback data `"pick:dark"`, returns `Some("dark")`.
     pub fn callback_param(&self) -> Option<String> {
         self.callback_params().into_iter().next()
     }
 
+    /// First callback parameter parsed as type `T`. Returns `None` on missing or parse failure.
     pub fn callback_param_as<T: std::str::FromStr>(&self) -> Option<T> {
         self.callback_param()?.parse().ok()
     }
 
     // ─── Utilities ───
 
+    /// Delete a specific message immediately. Not tracked by the differ.
     pub async fn delete_now(&self, message_id: MessageId) -> HandlerResult {
-        self.bot.delete_messages(self.chat_id, vec![message_id]).await.map_err(HandlerError::Api)?;
+        self.bot
+            .delete_messages(self.chat_id, vec![message_id])
+            .await
+            .map_err(HandlerError::Api)?;
         Ok(())
     }
 
+    /// Send a "typing…" indicator to the chat. Disappears after ~5 seconds or on next message.
     pub async fn typing(&self) -> HandlerResult {
-        self.bot.send_chat_action(self.chat_id, ChatAction::Typing).await.map_err(HandlerError::Api)?;
+        self.bot
+            .send_chat_action(self.chat_id, ChatAction::Typing)
+            .await
+            .map_err(HandlerError::Api)?;
         Ok(())
     }
 
     /// Send a quick text message (untracked — survives navigate).
     /// Returns the sent message for pinning, forwarding, etc.
     pub async fn send_text(&self, text: impl Into<String>) -> Result<SentMessage, HandlerError> {
-        let sent = self.bot.send_message(
-            self.chat_id,
-            MessageContent::Text {
-                text: text.into(), parse_mode: ParseMode::Html,
-                keyboard: None, link_preview: LinkPreview::Disabled,
-            },
-            SendOptions::default(),
-        ).await.map_err(HandlerError::Api)?;
+        let sent = self
+            .bot
+            .send_message(
+                self.chat_id,
+                MessageContent::Text {
+                    text: text.into(),
+                    parse_mode: ParseMode::Html,
+                    keyboard: None,
+                    link_preview: LinkPreview::Disabled,
+                },
+                SendOptions::default(),
+            )
+            .await
+            .map_err(HandlerError::Api)?;
         Ok(sent)
     }
 
     /// Send a notification that will be auto-deleted on next navigate().
     pub async fn notify(&mut self, text: impl Into<String>) -> HandlerResult {
-        let sent = self.bot.send_message(
-            self.chat_id,
-            MessageContent::Text {
-                text: text.into(), parse_mode: ParseMode::Html,
-                keyboard: None, link_preview: LinkPreview::Disabled,
-            },
-            SendOptions::default(),
-        ).await.map_err(HandlerError::Api)?;
+        let sent = self
+            .bot
+            .send_message(
+                self.chat_id,
+                MessageContent::Text {
+                    text: text.into(),
+                    parse_mode: ParseMode::Html,
+                    keyboard: None,
+                    link_preview: LinkPreview::Disabled,
+                },
+                SendOptions::default(),
+            )
+            .await
+            .map_err(HandlerError::Api)?;
         self.state.pending_user_messages.push(sent.message_id);
         Ok(())
     }
 
     /// Send a temp notification that auto-deletes after duration.
     pub async fn notify_temp(&self, text: impl Into<String>, duration: Duration) -> HandlerResult {
-        let sent = self.bot.send_message(
-            self.chat_id,
-            MessageContent::Text {
-                text: text.into(), parse_mode: ParseMode::Html,
-                keyboard: None, link_preview: LinkPreview::Disabled,
-            },
-            SendOptions::default(),
-        ).await.map_err(HandlerError::Api)?;
+        let sent = self
+            .bot
+            .send_message(
+                self.chat_id,
+                MessageContent::Text {
+                    text: text.into(),
+                    parse_mode: ParseMode::Html,
+                    keyboard: None,
+                    link_preview: LinkPreview::Disabled,
+                },
+                SendOptions::default(),
+            )
+            .await
+            .map_err(HandlerError::Api)?;
 
         let bot = self.bot.clone();
         let chat_id = self.chat_id;
@@ -661,23 +905,36 @@ impl Ctx {
     /// then returns a handle for streaming updates (e.g., LLM token streaming).
     ///
     /// Auto-throttles edits to respect Telegram rate limits.
-    pub async fn progressive(&mut self, initial: Screen) -> Result<crate::progressive::ProgressiveHandle, HandlerError> {
+    pub async fn progressive(
+        &mut self,
+        initial: Screen,
+    ) -> Result<crate::progressive::ProgressiveHandle, HandlerError> {
         // Cancel any previous progressive task.
         self.cancel_progressive();
 
         match &self.mode {
             CtxMode::Private | CtxMode::Group { .. } => {
-                let sent = self.bot.send_message(
-                    self.chat_id,
-                    initial.messages.first()
-                        .ok_or_else(|| HandlerError::Internal(anyhow::anyhow!("empty screen")))?
-                        .content.clone(),
-                    SendOptions::default(),
-                ).await.map_err(HandlerError::Api)?;
+                let sent = self
+                    .bot
+                    .send_message(
+                        self.chat_id,
+                        initial
+                            .messages
+                            .first()
+                            .ok_or_else(|| HandlerError::Internal(anyhow::anyhow!("empty screen")))?
+                            .content
+                            .clone(),
+                        SendOptions::default(),
+                    )
+                    .await
+                    .map_err(HandlerError::Api)?;
 
-                self.state.active_bot_messages.push(
-                    TrackedMessage::from_content(sent.message_id, &initial.messages[0].content)
-                );
+                self.state
+                    .active_bot_messages
+                    .push(TrackedMessage::from_content(
+                        sent.message_id,
+                        &initial.messages[0].content,
+                    ));
 
                 let bot = self.bot.clone();
                 let chat_id = self.chat_id;
@@ -686,16 +943,29 @@ impl Ctx {
                 let editor: crate::progressive::EditorFn = Arc::new(move |screen| {
                     let bot = bot.clone();
                     Box::pin(async move {
-                        let msg = screen.messages.first()
-                            .ok_or_else(|| crate::error::ApiError::Unknown("empty screen".into()))?;
+                        let msg = screen.messages.first().ok_or_else(|| {
+                            crate::error::ApiError::Unknown("empty screen".into())
+                        })?;
                         match &msg.content {
-                            MessageContent::Text { text, parse_mode, keyboard, link_preview } => {
+                            MessageContent::Text {
+                                text,
+                                parse_mode,
+                                keyboard,
+                                link_preview,
+                            } => {
                                 bot.edit_message_text(
-                                    chat_id, msg_id, text.clone(), *parse_mode,
-                                    keyboard.clone(), matches!(link_preview, LinkPreview::Enabled),
-                                ).await
+                                    chat_id,
+                                    msg_id,
+                                    text.clone(),
+                                    *parse_mode,
+                                    keyboard.clone(),
+                                    matches!(link_preview, LinkPreview::Enabled),
+                                )
+                                .await
                             }
-                            _ => Err(crate::error::ApiError::Unknown("progressive only supports text".into())),
+                            _ => Err(crate::error::ApiError::Unknown(
+                                "progressive only supports text".into(),
+                            )),
                         }
                     })
                 });
@@ -707,10 +977,14 @@ impl Ctx {
                 self.progressive_abort = Some(handle.abort_handle());
                 Ok(handle)
             }
-            CtxMode::Inline { inline_message_id: _ } => {
+            CtxMode::Inline {
+                inline_message_id: _,
+            } => {
                 // For inline, the message is already sent. Create editor for inline edit.
                 // TODO: implement inline progressive
-                Err(HandlerError::Internal(anyhow::anyhow!("progressive not yet supported for inline")))
+                Err(HandlerError::Internal(anyhow::anyhow!(
+                    "progressive not yet supported for inline"
+                )))
             }
         }
     }
@@ -723,73 +997,135 @@ impl Ctx {
         }
     }
 
-    pub fn deep_link(&self) -> Option<&str> { self.deep_link.as_deref() }
-    pub fn current_screen(&self) -> &ScreenId { &self.state.current_screen }
-    pub fn bot(&self) -> &dyn BotApi { self.bot.as_ref() }
+    /// The deep link parameter from `/start <payload>`, if present.
+    pub fn deep_link(&self) -> Option<&str> {
+        self.deep_link.as_deref()
+    }
+
+    /// The ID of the screen currently displayed to this user.
+    pub fn current_screen(&self) -> &ScreenId {
+        &self.state.current_screen
+    }
+
+    /// Access the underlying [`BotApi`] implementation (useful for direct API calls in tests).
+    pub fn bot(&self) -> &dyn BotApi {
+        self.bot.as_ref()
+    }
 
     /// Text from the incoming message (full, including /command).
-    pub fn text(&self) -> Option<&str> { self.message_text.as_deref() }
+    pub fn text(&self) -> Option<&str> {
+        self.message_text.as_deref()
+    }
 
     /// Inline query ID (for answer_inline).
-    pub fn inline_query_id(&self) -> Option<&str> { self.inline_query_id.as_deref() }
+    pub fn inline_query_id(&self) -> Option<&str> {
+        self.inline_query_id.as_deref()
+    }
 
     /// Chosen inline result ID (for on_chosen_inline handler).
-    pub fn chosen_inline_result_id(&self) -> Option<&str> { self.chosen_inline_result_id.as_deref() }
+    pub fn chosen_inline_result_id(&self) -> Option<&str> {
+        self.chosen_inline_result_id.as_deref()
+    }
 
     /// ID of the incoming message that triggered this handler.
-    pub fn message_id(&self) -> Option<MessageId> { self.incoming_message_id }
+    pub fn message_id(&self) -> Option<MessageId> {
+        self.incoming_message_id
+    }
+
+    /// ID of the last message sent via `reply()`, if any.
+    pub fn reply_message_id(&self) -> Option<MessageId> {
+        self.state.reply_message_id
+    }
 
     /// Pre-checkout query ID (for payment handlers).
-    pub fn pre_checkout_id(&self) -> Option<&str> { self.pre_checkout_query_id.as_deref() }
+    pub fn pre_checkout_id(&self) -> Option<&str> {
+        self.payment.query_id.as_deref()
+    }
 
     /// Payment payload string.
-    pub fn payment_payload(&self) -> Option<&str> { self.payment_payload.as_deref() }
+    pub fn payment_payload(&self) -> Option<&str> {
+        self.payment.payload.as_deref()
+    }
 
     /// Payment currency code (e.g. "USD").
-    pub fn payment_currency(&self) -> Option<&str> { self.payment_currency.as_deref() }
+    pub fn payment_currency(&self) -> Option<&str> {
+        self.payment.currency.as_deref()
+    }
 
     /// Payment total amount in smallest units.
-    pub fn payment_total_amount(&self) -> Option<i64> { self.payment_total_amount }
+    pub fn payment_total_amount(&self) -> Option<i64> {
+        self.payment.total_amount
+    }
 
     /// Approve a pre-checkout query (payment flow).
     pub async fn approve_checkout(&self) -> HandlerResult {
-        let id = self.pre_checkout_query_id.clone()
+        let id = self
+            .payment
+            .query_id
+            .clone()
             .ok_or_else(|| HandlerError::User("no pre-checkout query to answer".into()))?;
-        self.bot.answer_pre_checkout_query(id, true, None)
-            .await.map_err(HandlerError::Api)
+        self.bot
+            .answer_pre_checkout_query(id, true, None)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Decline a pre-checkout query with a reason.
     pub async fn decline_checkout(&self, reason: impl Into<String>) -> HandlerResult {
-        let id = self.pre_checkout_query_id.clone()
+        let id = self
+            .payment
+            .query_id
+            .clone()
             .ok_or_else(|| HandlerError::User("no pre-checkout query to answer".into()))?;
-        self.bot.answer_pre_checkout_query(id, false, Some(reason.into()))
-            .await.map_err(HandlerError::Api)
+        self.bot
+            .answer_pre_checkout_query(id, false, Some(reason.into()))
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Answer an inline query with results.
     pub async fn answer_inline(
-        &self, results: Vec<InlineQueryResult>,
-        next_offset: Option<String>, cache_time: Option<i32>, is_personal: bool,
+        &self,
+        results: Vec<InlineQueryResult>,
+        next_offset: Option<String>,
+        cache_time: Option<i32>,
+        is_personal: bool,
     ) -> HandlerResult {
-        let query_id = self.inline_query_id.clone()
+        let query_id = self
+            .inline_query_id
+            .clone()
             .ok_or_else(|| HandlerError::User("no inline query to answer".into()))?;
         tracing::debug!(query_id = %query_id, result_count = results.len(), "answering inline query");
-        match self.bot.answer_inline_query(query_id, results, next_offset, cache_time, is_personal).await {
-            Ok(()) => { tracing::debug!("answer_inline_query OK"); Ok(()) }
-            Err(e) => { tracing::error!(error = %e, "answer_inline_query FAILED"); Err(HandlerError::Api(e)) }
+        match self
+            .bot
+            .answer_inline_query(query_id, results, next_offset, cache_time, is_personal)
+            .await
+        {
+            Ok(()) => {
+                tracing::debug!("answer_inline_query OK");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "answer_inline_query FAILED");
+                Err(HandlerError::Api(e))
+            }
         }
     }
 
     // ─── I18n ───
 
+    /// Lang.
     pub fn lang(&self) -> &str {
-        self.user.language_code.as_deref()
+        self.user
+            .language_code
+            .as_deref()
             .unwrap_or_else(|| i18n::i18n().default_lang())
     }
 
     /// Translate a key using the user's language.
-    pub fn t(&self, key: &str) -> String { i18n::i18n().t(self.lang(), key) }
+    pub fn t(&self, key: &str) -> String {
+        i18n::i18n().t(self.lang(), key)
+    }
 
     /// Translate with `{ $var }` substitutions.
     pub fn t_with(&self, key: &str, args: &[(&str, &str)]) -> String {
@@ -799,42 +1135,65 @@ impl Ctx {
     // ─── Convenience: forwarding & copying ───
 
     /// Copy a message to this chat (re-send without "Forwarded from" header).
-    pub async fn copy_here(&self, from_chat_id: ChatId, message_id: MessageId) -> Result<MessageId, HandlerError> {
-        self.bot.copy_message(self.chat_id, from_chat_id, message_id)
-            .await.map_err(HandlerError::Api)
+    pub async fn copy_here(
+        &self,
+        from_chat_id: ChatId,
+        message_id: MessageId,
+    ) -> Result<MessageId, HandlerError> {
+        self.bot
+            .copy_message(self.chat_id, from_chat_id, message_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Forward a message to this chat.
-    pub async fn forward_here(&self, from_chat_id: ChatId, message_id: MessageId) -> Result<SentMessage, HandlerError> {
-        self.bot.forward_message(self.chat_id, from_chat_id, message_id)
-            .await.map_err(HandlerError::Api)
+    pub async fn forward_here(
+        &self,
+        from_chat_id: ChatId,
+        message_id: MessageId,
+    ) -> Result<SentMessage, HandlerError> {
+        self.bot
+            .forward_message(self.chat_id, from_chat_id, message_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     // ─── Convenience: media ───
 
     /// Download a file by its file_id.
     pub async fn download(&self, file_id: &str) -> Result<DownloadedFile, HandlerError> {
-        self.bot.download_file(file_id).await.map_err(HandlerError::Api)
+        self.bot
+            .download_file(file_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     // ─── Convenience: fun ───
 
     /// Send a dice animation. Returns the sent message.
     pub async fn send_dice(&self, emoji: DiceEmoji) -> Result<SentMessage, HandlerError> {
-        self.bot.send_dice(self.chat_id, emoji).await.map_err(HandlerError::Api)
+        self.bot
+            .send_dice(self.chat_id, emoji)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Send a poll.
     pub async fn send_poll(&self, poll: SendPoll) -> Result<SentMessage, HandlerError> {
-        self.bot.send_poll(self.chat_id, poll).await.map_err(HandlerError::Api)
+        self.bot
+            .send_poll(self.chat_id, poll)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     // ─── Convenience: reactions ───
 
     /// React to a message with an emoji.
     pub async fn react(&self, message_id: MessageId, emoji: &str) -> HandlerResult {
-        self.bot.set_message_reaction(self.chat_id, message_id, emoji)
-            .await.map_err(HandlerError::Api)
+        self.bot
+            .set_message_reaction(self.chat_id, message_id, emoji)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// React to the incoming message.
@@ -851,32 +1210,39 @@ impl Ctx {
 
     /// Ban a user from this chat.
     pub async fn ban(&self, user_id: UserId) -> HandlerResult {
-        self.bot.ban_chat_member(self.chat_id, user_id).await.map_err(HandlerError::Api)
+        self.bot
+            .ban_chat_member(self.chat_id, user_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Unban a user in this chat.
     pub async fn unban(&self, user_id: UserId) -> HandlerResult {
-        self.bot.unban_chat_member(self.chat_id, user_id).await.map_err(HandlerError::Api)
+        self.bot
+            .unban_chat_member(self.chat_id, user_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     /// Get the member count for this chat.
     pub async fn member_count(&self) -> Result<i32, HandlerError> {
-        self.bot.get_chat_member_count(self.chat_id).await.map_err(HandlerError::Api)
+        self.bot
+            .get_chat_member_count(self.chat_id)
+            .await
+            .map_err(HandlerError::Api)
     }
 
     // ─── Convenience: payments ───
 
     /// Send an invoice to this chat.
     pub async fn send_invoice(&self, invoice: Invoice) -> Result<SentMessage, HandlerError> {
-        self.bot.send_invoice(self.chat_id, invoice).await.map_err(HandlerError::Api)
+        self.bot
+            .send_invoice(self.chat_id, invoice)
+            .await
+            .map_err(HandlerError::Api)
     }
 }
 
 fn rand_i64() -> i64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::SystemTime;
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let d = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-    let cnt = COUNTER.fetch_add(1, Ordering::Relaxed);
-    (d.as_nanos() as i64) ^ (cnt as i64 * 6_364_136_223_846_793_005 + 1)
+    fastrand::i64(..)
 }

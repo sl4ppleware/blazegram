@@ -1,73 +1,90 @@
 #![doc = include_str!("../README.md")]
-// #![warn(missing_docs)] // TODO: enable before 1.0
+// All public items are documented as of 0.4.0.
+#![warn(missing_docs)]
 #![allow(clippy::too_many_arguments)]
 
 // ─── Core types & errors ───
 
-/// Core types: ChatId, MessageId, Screen identifiers, message content, parsed updates.
-pub mod types;
 /// Error types for API calls and handler logic.
 pub mod error;
+/// Core types: ChatId, MessageId, Screen identifiers, message content, parsed updates.
+pub mod types;
 
 // ─── Screen system (the heart of Blazegram) ───
 
-/// Screen builder — declarative UI for chat messages.
-pub mod screen;
-/// Inline keyboard builder with buttons, rows, grids, navigation.
-pub mod keyboard;
-/// Markup processor: `*bold*` `_italic_` → Telegram HTML, plus `escape()` helper.
-pub mod markup;
 /// Virtual Chat Differ — computes minimal API operations for screen transitions.
 pub mod differ;
 /// Diff operation executor — applies edit/delete/send with retry and fallback.
 pub mod executor;
+/// Inline keyboard builder with buttons, rows, grids, navigation.
+pub mod keyboard;
+/// Markup processor: `*bold*` `_italic_` → Telegram HTML, plus `escape()` helper.
+pub mod markup;
+/// Screen builder — declarative UI for chat messages.
+pub mod screen;
 
 // ─── Runtime ───
 
-/// BotApi trait — 60+ methods abstracting Telegram API calls.
+/// grammers MTProto adapter implementing [`BotApi`](crate::bot_api::BotApi).
+///
+/// Split into sub-modules for send, media, admin, settings, forum, and stars operations.
+pub mod adapter;
+/// `BotApi` trait — 60+ async methods abstracting Telegram API calls.
 pub mod bot_api;
-/// grammers MTProto adapter implementing BotApi.
-pub mod grammers_adapter;
+/// Re-export for backward compatibility with pre-0.4 code that used
+/// `blazegram::grammers_adapter::*`.
+pub mod grammers_adapter {
+    pub use crate::adapter::*;
+}
+/// App builder and main event loop.
+pub mod app;
 /// Handler context — the single object handlers interact with.
 pub mod ctx;
+/// File-backed session — MemorySession + JSON persistence. Zero SQLite.
+pub mod file_session;
 /// Command/callback/input router with prefix matching.
 pub mod router;
 /// Per-chat message tracking serializer (locks, state, tracked messages).
 pub mod serializer;
 /// State storage trait + in-memory store with snapshot support.
 pub mod state;
-/// App builder and main event loop.
-pub mod app;
+/// Raw grammers Update → IncomingUpdate parser (isolates TL pattern matching).
+pub(crate) mod update_parser;
 
 // ─── Features ───
 
-/// Multi-step form wizards with validation.
-pub mod form;
-/// Paginated lists with auto-generated navigation buttons.
-pub mod pagination;
-/// Inline query results with builder API.
-pub mod inline;
-/// Progressive screen updates (streaming, progress bars). Auto-cancelled on navigate().
-pub mod progressive;
 /// Broadcast messages to multiple chats.
 pub mod broadcast;
-/// Template engine: `{{ var }}`, `{% if %}`, `{% for %}`.
-pub mod template;
+/// Multi-step form wizards with validation.
+pub mod form;
 /// JSON-based i18n with `{ $var }` interpolation.
 pub mod i18n;
+/// Inline query results with builder API.
+pub mod inline;
+/// Paginated lists with auto-generated navigation buttons.
+pub mod pagination;
+/// Progressive screen updates (streaming, progress bars). Auto-cancelled on navigate().
+pub mod progressive;
+/// Template engine: `{{ var }}`, `{% if %}`, `{% for %}`.
+pub mod template;
 
 // ─── Infrastructure ───
 
+/// File ID cache — avoid re-uploading the same media.
+pub mod file_cache;
+/// Prometheus-style counters and histograms.
+pub mod metrics;
 /// Middleware trait + built-in logging, analytics, throttle.
 pub mod middleware;
 /// Token-bucket rate limiter with automatic FLOOD_WAIT handling.
 pub mod rate_limiter;
-/// Prometheus-style counters and histograms.
-pub mod metrics;
-/// File ID cache — avoid re-uploading the same media.
-pub mod file_cache;
-/// SQLite-backed persistent state store.
-pub mod sqlite_store;
+/// Pure-Rust persistent state store (redb). Zero C deps, no SQLite conflicts.
+/// Requires the `redb` feature (enabled by default).
+#[cfg(feature = "redb")]
+pub mod redb_store;
+/// Ergonomic handler macros (`handler!`, `form_handler!`).
+#[macro_use]
+pub mod macros;
 
 // ─── Testing ───
 

@@ -2,7 +2,7 @@
 //!
 //! Enable with `features = ["redis"]` in Cargo.toml.
 //!
-//! Uses `deadpool-redis` for connection pooling and `bincode` for serialization.
+//! Uses `deadpool-redis` for connection pooling and `serde_json` for serialization.
 //!
 //! ```toml
 //! [dependencies]
@@ -20,7 +20,7 @@ use crate::types::*;
 
 /// Redis-backed [`StateStore`].
 ///
-/// Each chat's state is stored as a bincode blob with a configurable TTL.
+/// Each chat's state is stored as a JSON blob with a configurable TTL.
 pub struct RedisStore {
     pool: Pool,
     prefix: String,
@@ -61,12 +61,12 @@ impl StateStore for RedisStore {
     async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
         let mut conn = self.pool.get().await.ok()?;
         let bytes: Option<Vec<u8>> = conn.get(self.key(chat_id)).await.ok()?;
-        bytes.and_then(|b| bincode::deserialize(&b).ok())
+        bytes.and_then(|b| serde_json::from_slice(&b).ok())
     }
 
     async fn save(&self, state: &ChatState) {
         if let Ok(mut conn) = self.pool.get().await {
-            if let Ok(bytes) = bincode::serialize(state) {
+            if let Ok(bytes) = serde_json::to_vec(state) {
                 let _: Result<(), _> = conn
                     .set_ex(self.key(state.chat_id), bytes, self.ttl.as_secs())
                     .await;

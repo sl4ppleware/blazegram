@@ -16,8 +16,8 @@
 //! println!("{}", metrics().summary());
 //! ```
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
@@ -149,16 +149,36 @@ impl Metrics {
     pub fn prometheus(&self) -> String {
         let mut out = String::with_capacity(512);
 
-        write_prom_counter(&mut out, "bg_updates_total", "Total updates processed",
-            self.updates_total.load(Ordering::Relaxed));
-        write_prom_counter(&mut out, "bg_errors_total", "Total errors",
-            self.errors_total.load(Ordering::Relaxed));
-        write_prom_counter(&mut out, "bg_api_calls_total", "Total API calls",
-            self.api_calls_total.load(Ordering::Relaxed));
-        write_prom_counter(&mut out, "bg_api_calls_saved_total", "API calls saved by diff/cache",
-            self.api_calls_saved.load(Ordering::Relaxed));
-        write_prom_gauge(&mut out, "bg_active_chats", "Number of active chats",
-            self.active_chats.load(Ordering::Relaxed));
+        write_prom_counter(
+            &mut out,
+            "bg_updates_total",
+            "Total updates processed",
+            self.updates_total.load(Ordering::Relaxed),
+        );
+        write_prom_counter(
+            &mut out,
+            "bg_errors_total",
+            "Total errors",
+            self.errors_total.load(Ordering::Relaxed),
+        );
+        write_prom_counter(
+            &mut out,
+            "bg_api_calls_total",
+            "Total API calls",
+            self.api_calls_total.load(Ordering::Relaxed),
+        );
+        write_prom_counter(
+            &mut out,
+            "bg_api_calls_saved_total",
+            "API calls saved by diff/cache",
+            self.api_calls_saved.load(Ordering::Relaxed),
+        );
+        write_prom_gauge(
+            &mut out,
+            "bg_active_chats",
+            "Number of active chats",
+            self.active_chats.load(Ordering::Relaxed),
+        );
 
         // Duration summaries per label
         for entry in self.durations_us.iter() {
@@ -171,7 +191,8 @@ impl Metrics {
             sorted.sort_unstable();
 
             // Use accurate totals for _count/_sum
-            let (total_count, total_sum_us) = self.duration_totals
+            let (total_count, total_sum_us) = self
+                .duration_totals
                 .get(label)
                 .map(|r| *r.value())
                 .unwrap_or((sorted.len() as u64, sorted.iter().sum()));
@@ -179,10 +200,22 @@ impl Metrics {
             let name = format!("bg_duration_{}", sanitize_prom(label));
             out.push_str(&format!("# HELP {} Duration of {label} in seconds\n", name));
             out.push_str(&format!("# TYPE {} summary\n", name));
-            out.push_str(&format!("{name}{{quantile=\"0.5\"}} {:.6}\n", percentile_sec(&sorted, 50)));
-            out.push_str(&format!("{name}{{quantile=\"0.95\"}} {:.6}\n", percentile_sec(&sorted, 95)));
-            out.push_str(&format!("{name}{{quantile=\"0.99\"}} {:.6}\n", percentile_sec(&sorted, 99)));
-            out.push_str(&format!("{name}_sum {:.6}\n", total_sum_us as f64 / 1_000_000.0));
+            out.push_str(&format!(
+                "{name}{{quantile=\"0.5\"}} {:.6}\n",
+                percentile_sec(&sorted, 50)
+            ));
+            out.push_str(&format!(
+                "{name}{{quantile=\"0.95\"}} {:.6}\n",
+                percentile_sec(&sorted, 95)
+            ));
+            out.push_str(&format!(
+                "{name}{{quantile=\"0.99\"}} {:.6}\n",
+                percentile_sec(&sorted, 99)
+            ));
+            out.push_str(&format!(
+                "{name}_sum {:.6}\n",
+                total_sum_us as f64 / 1_000_000.0
+            ));
             out.push_str(&format!("{name}_count {total_count}\n"));
         }
 
@@ -210,11 +243,16 @@ impl Metrics {
             }
             let mut sorted: Vec<u64> = ring.samples().to_vec();
             sorted.sort_unstable();
-            let (total_count, total_sum_us) = self.duration_totals
+            let (total_count, total_sum_us) = self
+                .duration_totals
                 .get(label)
                 .map(|r| *r.value())
                 .unwrap_or((sorted.len() as u64, sorted.iter().sum()));
-            let avg_us = if total_count > 0 { total_sum_us / total_count } else { 0 };
+            let avg_us = if total_count > 0 {
+                total_sum_us / total_count
+            } else {
+                0
+            };
 
             out.push_str(&format!(
                 "  {label}: count={total_count}, avg={avg_us}µs, \
@@ -255,7 +293,8 @@ impl<'a> Timer<'a> {
 
 impl<'a> Drop for Timer<'a> {
     fn drop(&mut self) {
-        self.metrics.record_duration(self.label, self.start.elapsed());
+        self.metrics
+            .record_duration(self.label, self.start.elapsed());
     }
 }
 
@@ -284,7 +323,13 @@ fn percentile_sec(sorted: &[u64], p: u32) -> f64 {
 
 fn sanitize_prom(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -349,7 +394,11 @@ mod tests {
         let ring = m.durations_us.get("sleep_test").unwrap();
         assert_eq!(ring.value().len(), 1);
         // Should be at least 4ms (4000µs) — generous lower bound
-        assert!(ring.value().samples()[0] >= 4_000, "duration was {} µs", ring.value().samples()[0]);
+        assert!(
+            ring.value().samples()[0] >= 4_000,
+            "duration was {} µs",
+            ring.value().samples()[0]
+        );
     }
 
     #[test]

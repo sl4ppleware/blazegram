@@ -15,33 +15,51 @@ use crate::bot_api::SendOptions;
 use crate::screen::{ReplyKeyboardAction, Screen};
 use crate::types::*;
 
+/// A single operation the differ wants the executor to perform.
 #[derive(Debug, Clone)]
 pub enum DiffOp {
+    /// Send a new message.
     Send {
+        /// The content to send.
         content: MessageContent,
+        /// Delivery options (reply-to, protect content, etc.).
         send_options: SendOptions,
     },
+    /// Edit an existing message in place.
     Edit {
+        /// ID of the message to edit.
         message_id: MessageId,
+        /// New content to replace the old.
         content: MessageContent,
+        /// What kind of edit to perform.
         edit_type: EditType,
     },
+    /// Delete one or more messages.
     Delete {
+        /// IDs of the messages to delete.
         message_ids: Vec<MessageId>,
     },
 }
 
+/// What part of a message is being edited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditType {
+    /// Edit the text body via `editMessageText`.
     Text,
+    /// Edit the caption via `editMessageCaption`.
     Caption,
+    /// Replace the media via `editMessageMedia`.
     Media,
+    /// Change only the inline keyboard via `editMessageReplyMarkup`.
     Keyboard,
 }
 
+/// The Virtual Chat Differ — computes the minimal set of Telegram API calls
+/// to transition from the current on-screen messages to a new [`Screen`].
 pub struct Differ;
 
 impl Differ {
+    /// Compute diff operations assuming no frozen messages.
     pub fn diff(
         old_messages: &[TrackedMessage],
         new_screen: &Screen,
@@ -50,6 +68,7 @@ impl Differ {
         Self::diff_with_frozen(old_messages, new_screen, pending_user_messages, &[])
     }
 
+    /// Compute diff operations, excluding `frozen_messages` from deletion.
     pub fn diff_with_frozen(
         old_messages: &[TrackedMessage],
         new_screen: &Screen,
@@ -71,7 +90,13 @@ impl Differ {
         let force_send = new_screen.protect_content || new_screen.reply_keyboard.is_some();
 
         let mut ops = if has_user_messages || force_send {
-            Self::diff_replace_all(old_messages, new_messages, pending_user_messages, frozen_messages, send_opts)
+            Self::diff_replace_all(
+                old_messages,
+                new_messages,
+                pending_user_messages,
+                frozen_messages,
+                send_opts,
+            )
         } else {
             Self::diff_edit_in_place(old_messages, new_messages, frozen_messages, send_opts)
         };
@@ -107,7 +132,11 @@ impl Differ {
     /// Returns true if successfully attached.
     fn attach_reply_keyboard(ops: &mut [DiffOp], action: &ReplyKeyboardAction) -> bool {
         for op in ops.iter_mut() {
-            if let DiffOp::Send { content, send_options } = op {
+            if let DiffOp::Send {
+                content,
+                send_options,
+            } = op
+            {
                 if content.keyboard().is_none() {
                     send_options.reply_keyboard = Some(action.clone());
                     return true;
@@ -128,7 +157,8 @@ impl Differ {
         let mut ops = Vec::new();
 
         // Collect all message IDs to delete (excluding frozen)
-        let mut to_delete: Vec<MessageId> = old_messages.iter()
+        let mut to_delete: Vec<MessageId> = old_messages
+            .iter()
             .filter(|m| !frozen_messages.contains(&m.message_id))
             .map(|m| m.message_id)
             .collect();
@@ -287,10 +317,15 @@ mod tests {
 
     #[test]
     fn test_callback_edits_in_place() {
-        let old = vec![TrackedMessage::from_content(MessageId(1), &text_content("hello"))];
+        let old = vec![TrackedMessage::from_content(
+            MessageId(1),
+            &text_content("hello"),
+        )];
         let screen = Screen {
             id: ScreenId::from("test"),
-            messages: vec![ScreenMessage { content: text_content("world") }],
+            messages: vec![ScreenMessage {
+                content: text_content("world"),
+            }],
             input: None,
             typing_action: None,
             protect_content: false,
@@ -305,10 +340,15 @@ mod tests {
 
     #[test]
     fn test_message_deletes_old_and_sends_new() {
-        let old = vec![TrackedMessage::from_content(MessageId(1), &text_content("hello"))];
+        let old = vec![TrackedMessage::from_content(
+            MessageId(1),
+            &text_content("hello"),
+        )];
         let screen = Screen {
             id: ScreenId::from("test"),
-            messages: vec![ScreenMessage { content: text_content("world") }],
+            messages: vec![ScreenMessage {
+                content: text_content("world"),
+            }],
             input: None,
             typing_action: None,
             protect_content: false,
@@ -318,12 +358,27 @@ mod tests {
         // User messages present → delete + send
         let user_msgs = vec![MessageId(10)];
         let ops = Differ::diff(&old, &screen, &user_msgs);
-        assert!(ops.iter().any(|op| matches!(op, DiffOp::Send { .. })), "should send new");
-        assert!(!ops.iter().any(|op| matches!(op, DiffOp::Edit { .. })), "should NOT edit");
-        let del = ops.iter().find(|op| matches!(op, DiffOp::Delete { .. })).unwrap();
+        assert!(
+            ops.iter().any(|op| matches!(op, DiffOp::Send { .. })),
+            "should send new"
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(op, DiffOp::Edit { .. })),
+            "should NOT edit"
+        );
+        let del = ops
+            .iter()
+            .find(|op| matches!(op, DiffOp::Delete { .. }))
+            .unwrap();
         if let DiffOp::Delete { message_ids } = del {
-            assert!(message_ids.contains(&MessageId(1)), "should delete old bot msg");
-            assert!(message_ids.contains(&MessageId(10)), "should delete user msg");
+            assert!(
+                message_ids.contains(&MessageId(1)),
+                "should delete old bot msg"
+            );
+            assert!(
+                message_ids.contains(&MessageId(10)),
+                "should delete user msg"
+            );
         }
     }
 
@@ -331,7 +386,12 @@ mod tests {
     fn test_empty_to_new_sends() {
         let screen = Screen::builder("test").text("hello").build();
         let ops = Differ::diff(&[], &screen, &[]);
-        assert_eq!(ops.iter().filter(|op| matches!(op, DiffOp::Send { .. })).count(), 1);
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, DiffOp::Send { .. }))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -343,7 +403,9 @@ mod tests {
         ];
         let screen = Screen {
             id: ScreenId::from("test"),
-            messages: vec![ScreenMessage { content: text_content("new") }],
+            messages: vec![ScreenMessage {
+                content: text_content("new"),
+            }],
             input: None,
             typing_action: None,
             protect_content: false,
@@ -355,7 +417,10 @@ mod tests {
         // MessageId(2) should NOT be in any delete op
         for op in &ops {
             if let DiffOp::Delete { message_ids } = op {
-                assert!(!message_ids.contains(&MessageId(2)), "frozen message should not be deleted");
+                assert!(
+                    !message_ids.contains(&MessageId(2)),
+                    "frozen message should not be deleted"
+                );
             }
         }
     }
@@ -377,6 +442,9 @@ mod tests {
         };
         let user_msgs = vec![MessageId(10)];
         let ops = Differ::diff(&old, &screen, &user_msgs);
-        assert!(ops.iter().any(|op| matches!(op, DiffOp::Send { .. })), "should resend even if same content");
+        assert!(
+            ops.iter().any(|op| matches!(op, DiffOp::Send { .. })),
+            "should resend even if same content"
+        );
     }
 }

@@ -112,43 +112,52 @@ pub fn render(input: &str) -> String {
 
 // ─── HTML Helpers ───
 
+/// Escape.
 pub fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
+/// Escape attr.
 pub fn escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('"', "&quot;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
+/// Bold.
 pub fn bold(text: &str) -> String {
     format!("<b>{}</b>", escape(text))
 }
 
+/// Italic.
 pub fn italic(text: &str) -> String {
     format!("<i>{}</i>", escape(text))
 }
 
+/// Underline.
 pub fn underline(text: &str) -> String {
     format!("<u>{}</u>", escape(text))
 }
 
+/// Strike.
 pub fn strike(text: &str) -> String {
     format!("<s>{}</s>", escape(text))
 }
 
+/// Code.
 pub fn code(text: &str) -> String {
     format!("<code>{}</code>", escape(text))
 }
 
+/// Pre.
 pub fn pre(text: &str) -> String {
     format!("<pre>{}</pre>", escape(text))
 }
 
+/// Pre lang.
 pub fn pre_lang(lang: &str, text: &str) -> String {
     format!(
         "<pre><code class=\"language-{}\">{}</code></pre>",
@@ -157,18 +166,22 @@ pub fn pre_lang(lang: &str, text: &str) -> String {
     )
 }
 
+/// Link.
 pub fn link(text: &str, url: &str) -> String {
     format!("<a href=\"{}\">{}</a>", escape_attr(url), escape(text))
 }
 
+/// Spoiler.
 pub fn spoiler(text: &str) -> String {
     format!("<tg-spoiler>{}</tg-spoiler>", escape(text))
 }
 
+/// Blockquote.
 pub fn blockquote(text: &str) -> String {
     format!("<blockquote>{}</blockquote>", escape(text))
 }
 
+/// Mention.
 pub fn mention(user_id: u64, text: &str) -> String {
     format!("<a href=\"tg://user?id={}\">{}</a>", user_id, escape(text))
 }

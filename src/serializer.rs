@@ -7,12 +7,14 @@ use tokio::sync::Mutex;
 use crate::state::StateStore;
 use crate::types::*;
 
+/// `ChatSerializer`.
 pub struct ChatSerializer {
     locks: DashMap<ChatId, Arc<Mutex<()>>>,
     pub(crate) store: Arc<dyn StateStore>,
 }
 
 impl ChatSerializer {
+    /// Create a new serializer backed by the given state store.
     pub fn new(store: Arc<dyn StateStore>) -> Self {
         Self {
             locks: DashMap::new(),

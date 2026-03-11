@@ -86,18 +86,18 @@ struct Bundle {
 
 fn framework_defaults() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("bg-nav-back",     "←"),
-        ("bg-nav-prev",     "←"),
-        ("bg-nav-next",     "→"),
-        ("bg-form-cancel",  "✕ Cancel"),
+        ("bg-nav-back", "←"),
+        ("bg-nav-prev", "←"),
+        ("bg-nav-next", "→"),
+        ("bg-form-cancel", "✕ Cancel"),
         ("bg-form-confirm", "✅ Confirm"),
-        ("bg-form-review",  "Review:\n\n{ $summary }"),
-        ("bg-err-nan",      "Not a number."),
-        ("bg-err-min",      "Minimum: { $min }"),
-        ("bg-err-max",      "Maximum: { $max }"),
-        ("bg-err-choice",   "Pick one of the options."),
-        ("bg-err-photo",    "Send a photo."),
-        ("bg-dismiss",      "✖️"),
+        ("bg-form-review", "Review:\n\n{ $summary }"),
+        ("bg-err-nan", "Not a number."),
+        ("bg-err-min", "Minimum: { $min }"),
+        ("bg-err-max", "Maximum: { $max }"),
+        ("bg-err-choice", "Pick one of the options."),
+        ("bg-err-photo", "Send a photo."),
+        ("bg-dismiss", "✖️"),
     ]
 }
 
@@ -134,8 +134,8 @@ impl I18n {
         let mut bundles: HashMap<String, Bundle> = HashMap::new();
 
         // Read every .ftl file
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| I18nError::Io(e, dir.display().to_string()))?;
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| I18nError::Io(e, dir.display().to_string()))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| I18nError::Io(e, dir.display().to_string()))?;
@@ -157,9 +157,7 @@ impl I18n {
         }
 
         // Ensure default lang bundle exists
-        bundles
-            .entry(default_lang.to_string())
-            .or_default();
+        bundles.entry(default_lang.to_string()).or_default();
 
         // Inject framework defaults into every bundle (don’t overwrite user keys)
         let fw = framework_defaults();
@@ -330,8 +328,11 @@ fn substitute(template: &str, args: &[(&str, &str)]) -> String {
 // ──────────────────────────────────────────────────
 
 #[derive(Debug)]
+/// Errors that can occur when loading i18n locale files.
 pub enum I18nError {
+    /// NotADirectory.
     NotADirectory(String),
+    /// Io.
     Io(std::io::Error, String),
 }
 
@@ -378,10 +379,7 @@ btn-back = ← Back
     fn test_parse_ftl_with_vars() {
         let input = "hello = Hi, { $name }! Age: { $age }.";
         let m = parse_ftl(input);
-        assert_eq!(
-            m.get("hello").unwrap(),
-            "Hi, { $name }! Age: { $age }."
-        );
+        assert_eq!(m.get("hello").unwrap(), "Hi, { $name }! Age: { $age }.");
     }
 
     #[test]
@@ -391,17 +389,17 @@ btn-back = ← Back
             "Hello, Alice!"
         );
         assert_eq!(
-            substitute("Min: { $min }, Max: { $max }", &[("min", "1"), ("max", "10")]),
+            substitute(
+                "Min: { $min }, Max: { $max }",
+                &[("min", "1"), ("max", "10")]
+            ),
             "Min: 1, Max: 10"
         );
     }
 
     #[test]
     fn test_substitute_compact() {
-        assert_eq!(
-            substitute("Hi {$name}!", &[("name", "Bob")]),
-            "Hi Bob!"
-        );
+        assert_eq!(substitute("Hi {$name}!", &[("name", "Bob")]), "Hi Bob!");
     }
 
     #[test]
@@ -442,10 +440,7 @@ btn-back = ← Back
             i.t_with("en", "hello", &[("name", "World")]),
             "Hello, World!"
         );
-        assert_eq!(
-            i.t_with("de", "hello", &[("name", "Welt")]),
-            "Hallo, Welt!"
-        );
+        assert_eq!(i.t_with("de", "hello", &[("name", "Welt")]), "Hallo, Welt!");
         assert_eq!(i.t("de", "btn-ok"), "OK");
         // Framework keys injected
         assert_eq!(i.t("de", "bg-nav-back"), "←");

@@ -28,7 +28,10 @@ use crate::markup;
 pub fn render(template: &str, vars: &HashMap<&str, String>) -> String {
     let tokens = tokenize(template);
     // Convert to owned keys internally so for-loops don't need string leaking
-    let owned: HashMap<String, String> = vars.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
+    let owned: HashMap<String, String> = vars
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
     eval_owned(&tokens, &owned)
 }
 
@@ -62,11 +65,7 @@ fn tokenize(template: &str) -> Vec<Token> {
 
     while !rest.is_empty() {
         // Find the earliest tag opening
-        let positions = [
-            rest.find("{{"),
-            rest.find("{!"),
-            rest.find("{%"),
-        ];
+        let positions = [rest.find("{{"), rest.find("{!"), rest.find("{%")];
         let earliest = positions.iter().filter_map(|p| *p).min();
 
         match earliest {
@@ -113,7 +112,7 @@ fn tokenize(template: &str) -> Vec<Token> {
                         rest = &rest[pos + 2..];
                     }
                 } else {
-                    unreachable!();
+                    unreachable!("earliest matched a tag prefix but none of {{, {{!, {{% matched");
                 }
             }
         }
@@ -169,10 +168,7 @@ fn eval_owned(tokens: &[Token], vars: &HashMap<String, String>) -> String {
             }
             Token::If(key) => {
                 let (if_body, else_body, end_idx) = collect_if_block(tokens, i);
-                let truthy = vars
-                    .get(key)
-                    .map(|v| !v.is_empty())
-                    .unwrap_or(false);
+                let truthy = vars.get(key).map(|v| !v.is_empty()).unwrap_or(false);
                 if truthy {
                     out.push_str(&eval_owned(&if_body, vars));
                 } else {
@@ -338,7 +334,6 @@ fn parse_json_array(s: &str) -> Vec<String> {
     items
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,7 +345,10 @@ mod tests {
     #[test]
     fn test_escaped_var() {
         let v = vars(&[("name", "<b>Alice</b>")]);
-        assert_eq!(render("Hello {{ name }}!", &v), "Hello &lt;b&gt;Alice&lt;/b&gt;!");
+        assert_eq!(
+            render("Hello {{ name }}!", &v),
+            "Hello &lt;b&gt;Alice&lt;/b&gt;!"
+        );
     }
 
     #[test]
@@ -427,10 +425,7 @@ mod tests {
 
     #[test]
     fn test_nested_if_in_for() {
-        let v = vars(&[
-            ("users", r#"["Alice", "Bob"]"#),
-            ("greet", "yes"),
-        ]);
+        let v = vars(&[("users", r#"["Alice", "Bob"]"#), ("greet", "yes")]);
         let tpl = "{% for u in users %}{% if greet %}Hi {{ u }}! {% endif %}{% endfor %}";
         assert_eq!(render(tpl, &v), "Hi Alice! Hi Bob! ");
     }
@@ -482,10 +477,7 @@ mod tests {
 
     #[test]
     fn test_parse_json_array_strings() {
-        assert_eq!(
-            parse_json_array(r#"["a", "b", "c"]"#),
-            vec!["a", "b", "c"]
-        );
+        assert_eq!(parse_json_array(r#"["a", "b", "c"]"#), vec!["a", "b", "c"]);
     }
 
     #[test]

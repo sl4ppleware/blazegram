@@ -34,21 +34,23 @@ use crate::types::*;
 pub enum EditTarget {
     /// Regular message in a chat.
     Chat {
+        /// The chat containing the message.
         chat_id: ChatId,
+        /// The message to progressively update.
         message_id: MessageId,
     },
     /// Inline message (sent via inline mode).
-    Inline { inline_message_id: String },
+    Inline {
+        /// The packed inline message ID.
+        inline_message_id: String,
+    },
 }
 
 // ─── Editor function type ───
 
 /// A boxed async function that edits a message with the given screen content.
-pub type EditorFn = Arc<
-    dyn Fn(Screen) -> Pin<Box<dyn Future<Output = Result<(), ApiError>> + Send>>
-        + Send
-        + Sync,
->;
+pub type EditorFn =
+    Arc<dyn Fn(Screen) -> Pin<Box<dyn Future<Output = Result<(), ApiError>> + Send>> + Send + Sync>;
 
 // ─── Default intervals ───
 
@@ -105,7 +107,11 @@ impl ProgressiveHandle {
         let (done_tx, done_rx) = oneshot::channel();
         // Send the finalize command. If the background task is already gone,
         // we get a send error — treat it as success (message keeps last state).
-        if self.tx.send(ProgressiveCmd::Finalize(screen, done_tx)).is_err() {
+        if self
+            .tx
+            .send(ProgressiveCmd::Finalize(screen, done_tx))
+            .is_err()
+        {
             return Ok(());
         }
         // Wait for the background task to confirm delivery.
@@ -202,10 +208,7 @@ async fn do_edit(editor: &EditorFn, screen: Screen, last_edit: &mut Instant) {
             *last_edit = Instant::now();
         }
         Err(ApiError::TooManyRequests { retry_after }) => {
-            tracing::warn!(
-                "progressive edit rate-limited, waiting {}s",
-                retry_after
-            );
+            tracing::warn!("progressive edit rate-limited, waiting {}s", retry_after);
             tokio::time::sleep(Duration::from_secs(retry_after as u64)).await;
             *last_edit = Instant::now();
         }
@@ -287,9 +290,7 @@ pub async fn start_progressive(
 ///
 /// Since inline messages don't go through normal `send_message`, the caller is
 /// responsible for providing the inline_message_id. Uses a custom editor closure.
-pub fn start_progressive_inline(
-    editor: EditorFn,
-) -> ProgressiveHandle {
+pub fn start_progressive_inline(editor: EditorFn) -> ProgressiveHandle {
     spawn_progressive(editor, DEFAULT_INLINE_INTERVAL)
 }
 
@@ -455,14 +456,18 @@ fn spawn_progressive(editor: EditorFn, min_interval: Duration) -> ProgressiveHan
     let (tx, rx) = mpsc::unbounded_channel();
     let task = tokio::spawn(progressive_task(rx, editor, min_interval));
     let abort_handle = task.abort_handle();
-    ProgressiveHandle { tx, _task: task, abort_handle }
+    ProgressiveHandle {
+        tx,
+        _task: task,
+        abort_handle,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use crate::screen::Screen;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn dummy_screen(text: &str) -> Screen {
         Screen::text("test", text).build()
@@ -548,9 +553,8 @@ mod tests {
 
     #[tokio::test]
     async fn handles_message_not_modified() {
-        let editor: EditorFn = Arc::new(|_screen: Screen| {
-            Box::pin(async move { Err(ApiError::MessageNotModified) })
-        });
+        let editor: EditorFn =
+            Arc::new(|_screen: Screen| Box::pin(async move { Err(ApiError::MessageNotModified) }));
 
         let handle = start_progressive_with_editor(editor, Duration::from_millis(10));
         handle.update(dummy_screen("same")).await;

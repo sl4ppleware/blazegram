@@ -13,8 +13,8 @@
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::sleep;
@@ -68,7 +68,9 @@ impl RateLimiterMetrics {
     pub fn utilization_pct(&self) -> f64 {
         let current = self.current_window_count.load(Ordering::Relaxed) as f64;
         let max = self.effective_rps.load(Ordering::Relaxed) as f64;
-        if max == 0.0 { return 0.0; }
+        if max == 0.0 {
+            return 0.0;
+        }
         (current / max) * 100.0
     }
 }
@@ -244,6 +246,7 @@ impl GlobalLimiter {
 
 // ─── RateLimitedBotApi ───
 
+/// A [`BotApi`] wrapper that enforces Telegram rate limits via a token bucket.
 pub struct RateLimitedBotApi<B: BotApi> {
     inner: B,
     global: GlobalLimiter,
@@ -259,7 +262,7 @@ impl<B: BotApi> RateLimitedBotApi<B> {
         let metrics = Arc::new(RateLimiterMetrics::new(rps));
         let effective_rps = Arc::new(AtomicU32::new(rps));
         metrics.effective_rps.store(rps, Ordering::Relaxed);
-        
+
         Self {
             inner,
             global: GlobalLimiter::new(rps, effective_rps),
@@ -285,7 +288,10 @@ impl<B: BotApi> RateLimitedBotApi<B> {
     }
 
     /// Get or create a per-chat bucket.
-    fn get_chat_bucket(&self, chat_id: ChatId) -> dashmap::mapref::one::RefMut<'_, i64, ChatBucket> {
+    fn get_chat_bucket(
+        &self,
+        chat_id: ChatId,
+    ) -> dashmap::mapref::one::RefMut<'_, i64, ChatBucket> {
         self.chat_buckets.entry(chat_id.0).or_insert_with(|| {
             if chat_id.0 < 0 {
                 ChatBucket::new_group()
@@ -319,7 +325,9 @@ impl<B: BotApi> RateLimitedBotApi<B> {
 
         // Update window count metric.
         let count = self.global.current_count().await;
-        self.metrics.current_window_count.store(count as u32, Ordering::Relaxed);
+        self.metrics
+            .current_window_count
+            .store(count as u32, Ordering::Relaxed);
     }
 
     /// Handle a 429 response: record, tighten limits, sleep.
@@ -466,7 +474,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         opts: SendOptions,
     ) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_message(chat_id, content.clone(), opts.clone())
+            self.inner
+                .send_message(chat_id, content.clone(), opts.clone())
         })
         .await
     }
@@ -521,12 +530,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         keyboard: Option<InlineKeyboard>,
     ) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.edit_message_media(
-                chat_id,
-                message_id,
-                content.clone(),
-                keyboard.clone(),
-            )
+            self.inner
+                .edit_message_media(chat_id, message_id, content.clone(), keyboard.clone())
         })
         .await
     }
@@ -570,11 +575,7 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         .await
     }
 
-    async fn send_chat_action(
-        &self,
-        chat_id: ChatId,
-        action: ChatAction,
-    ) -> Result<(), ApiError> {
+    async fn send_chat_action(&self, chat_id: ChatId, action: ChatAction) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_chat_action(chat_id, action)
         })
@@ -582,38 +583,56 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
     }
 
     async fn answer_inline_query(
-        &self, query_id: String, results: Vec<InlineQueryResult>,
-        next_offset: Option<String>, cache_time: Option<i32>, is_personal: bool,
+        &self,
+        query_id: String,
+        results: Vec<InlineQueryResult>,
+        next_offset: Option<String>,
+        cache_time: Option<i32>,
+        is_personal: bool,
     ) -> Result<(), ApiError> {
-        self.inner.answer_inline_query(query_id, results, next_offset, cache_time, is_personal).await
+        self.inner
+            .answer_inline_query(query_id, results, next_offset, cache_time, is_personal)
+            .await
     }
 
     // ── Forward / Copy (rate-limited) ──
 
     async fn forward_message(
-        &self, chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId,
+        &self,
+        chat_id: ChatId,
+        from_chat_id: ChatId,
+        message_id: MessageId,
     ) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.forward_message(chat_id, from_chat_id, message_id)
-        }).await
+            self.inner
+                .forward_message(chat_id, from_chat_id, message_id)
+        })
+        .await
     }
 
     async fn copy_message(
-        &self, chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId,
+        &self,
+        chat_id: ChatId,
+        from_chat_id: ChatId,
+        message_id: MessageId,
     ) -> Result<MessageId, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.copy_message(chat_id, from_chat_id, message_id)
-        }).await
+        })
+        .await
     }
 
     // ── Media (rate-limited) ──
 
     async fn send_media_group(
-        &self, chat_id: ChatId, media: Vec<MediaGroupItem>,
+        &self,
+        chat_id: ChatId,
+        media: Vec<MediaGroupItem>,
     ) -> Result<Vec<SentMessage>, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_media_group(chat_id, media.clone())
-        }).await
+        })
+        .await
     }
 
     async fn download_file(&self, file_id: &str) -> Result<DownloadedFile, ApiError> {
@@ -626,75 +645,110 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
     async fn send_poll(&self, chat_id: ChatId, poll: SendPoll) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_poll(chat_id, poll.clone())
-        }).await
+        })
+        .await
     }
 
     async fn stop_poll(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.stop_poll(chat_id, message_id)
-        }).await
+        self.rate_limited_call(Some(chat_id), || self.inner.stop_poll(chat_id, message_id))
+            .await
     }
 
     async fn send_dice(&self, chat_id: ChatId, emoji: DiceEmoji) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_dice(chat_id, emoji)
-        }).await
+        self.rate_limited_call(Some(chat_id), || self.inner.send_dice(chat_id, emoji))
+            .await
     }
 
-    async fn send_contact(&self, chat_id: ChatId, contact: Contact) -> Result<SentMessage, ApiError> {
+    async fn send_contact(
+        &self,
+        chat_id: ChatId,
+        contact: Contact,
+    ) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_contact(chat_id, contact.clone())
-        }).await
+        })
+        .await
     }
 
     async fn send_venue(&self, chat_id: ChatId, venue: Venue) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_venue(chat_id, venue.clone())
-        }).await
+        })
+        .await
     }
 
     // ── Payments (bypass rate limiter) ──
 
-    async fn send_invoice(&self, chat_id: ChatId, invoice: Invoice) -> Result<SentMessage, ApiError> {
+    async fn send_invoice(
+        &self,
+        chat_id: ChatId,
+        invoice: Invoice,
+    ) -> Result<SentMessage, ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.send_invoice(chat_id, invoice.clone())
-        }).await
+        })
+        .await
     }
 
     async fn answer_pre_checkout_query(
-        &self, id: String, ok: bool, error_message: Option<String>,
+        &self,
+        id: String,
+        ok: bool,
+        error_message: Option<String>,
     ) -> Result<(), ApiError> {
         // Must respond immediately, bypass rate limiter
-        self.inner.answer_pre_checkout_query(id, ok, error_message).await
+        self.inner
+            .answer_pre_checkout_query(id, ok, error_message)
+            .await
     }
 
     // ── Admin (rate-limited) ──
 
     async fn ban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.ban_chat_member(chat_id, user_id)).await
+        self.rate_limited_call(Some(chat_id), || {
+            self.inner.ban_chat_member(chat_id, user_id)
+        })
+        .await
     }
 
     async fn unban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.unban_chat_member(chat_id, user_id)).await
+        self.rate_limited_call(Some(chat_id), || {
+            self.inner.unban_chat_member(chat_id, user_id)
+        })
+        .await
     }
 
     async fn restrict_chat_member(
-        &self, chat_id: ChatId, user_id: UserId, permissions: ChatPermissions,
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.restrict_chat_member(chat_id, user_id, permissions.clone())
-        }).await
+            self.inner
+                .restrict_chat_member(chat_id, user_id, permissions.clone())
+        })
+        .await
     }
 
     async fn promote_chat_member(
-        &self, chat_id: ChatId, user_id: UserId, permissions: ChatPermissions,
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.promote_chat_member(chat_id, user_id, permissions.clone())
-        }).await
+            self.inner
+                .promote_chat_member(chat_id, user_id, permissions.clone())
+        })
+        .await
     }
 
-    async fn get_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<ChatMember, ApiError> {
+    async fn get_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+    ) -> Result<ChatMember, ApiError> {
         // Read-only, no rate limit
         self.inner.get_chat_member(chat_id, user_id).await
     }
@@ -708,7 +762,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
     }
 
     async fn leave_chat(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.leave_chat(chat_id)).await
+        self.rate_limited_call(Some(chat_id), || self.inner.leave_chat(chat_id))
+            .await
     }
 
     // ── Bot settings (bypass) ──
@@ -727,34 +782,62 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
 
     // ── Pinning (rate-limited) ──
 
-    async fn pin_chat_message(&self, chat_id: ChatId, message_id: MessageId, silent: bool) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.pin_chat_message(chat_id, message_id, silent)).await
+    async fn pin_chat_message(
+        &self,
+        chat_id: ChatId,
+        message_id: MessageId,
+        silent: bool,
+    ) -> Result<(), ApiError> {
+        self.rate_limited_call(Some(chat_id), || {
+            self.inner.pin_chat_message(chat_id, message_id, silent)
+        })
+        .await
     }
 
-    async fn unpin_chat_message(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.unpin_chat_message(chat_id, message_id)).await
+    async fn unpin_chat_message(
+        &self,
+        chat_id: ChatId,
+        message_id: MessageId,
+    ) -> Result<(), ApiError> {
+        self.rate_limited_call(Some(chat_id), || {
+            self.inner.unpin_chat_message(chat_id, message_id)
+        })
+        .await
     }
 
     async fn unpin_all_chat_messages(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.unpin_all_chat_messages(chat_id)).await
+        self.rate_limited_call(Some(chat_id), || {
+            self.inner.unpin_all_chat_messages(chat_id)
+        })
+        .await
     }
 
     // ── Reactions (rate-limited) ──
 
     async fn set_message_reaction(
-        &self, chat_id: ChatId, message_id: MessageId, emoji: &str,
+        &self,
+        chat_id: ChatId,
+        message_id: MessageId,
+        emoji: &str,
     ) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
             self.inner.set_message_reaction(chat_id, message_id, emoji)
-        }).await
+        })
+        .await
     }
 
     // ── Invite links ──
 
     async fn create_chat_invite_link(
-        &self, chat_id: ChatId, name: Option<&str>, expire_date: Option<i64>, member_limit: Option<i32>,
+        &self,
+        chat_id: ChatId,
+        name: Option<&str>,
+        expire_date: Option<i64>,
+        member_limit: Option<i32>,
     ) -> Result<String, ApiError> {
-        self.inner.create_chat_invite_link(chat_id, name, expire_date, member_limit).await
+        self.inner
+            .create_chat_invite_link(chat_id, name, expire_date, member_limit)
+            .await
     }
 
     async fn export_chat_invite_link(&self, chat_id: ChatId) -> Result<String, ApiError> {
@@ -786,7 +869,10 @@ mod tests {
         }
         let elapsed = start.elapsed();
         // Should be near-instant since bypass doesn't wait for global slots.
-        assert!(elapsed < Duration::from_secs(1), "bypass calls took too long: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "bypass calls took too long: {elapsed:?}"
+        );
     }
 
     #[tokio::test]

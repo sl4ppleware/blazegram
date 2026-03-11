@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::HandlerResult;
 use crate::types::*;
@@ -17,13 +17,20 @@ pub trait Middleware: Send + Sync + 'static {
         true
     }
     /// Called after handler.
-    async fn after(&self, chat_id: ChatId, user: &UserInfo, update: &IncomingUpdate, result: &HandlerResult) {
+    async fn after(
+        &self,
+        chat_id: ChatId,
+        user: &UserInfo,
+        update: &IncomingUpdate,
+        result: &HandlerResult,
+    ) {
         let _ = (chat_id, user, update, result);
     }
 }
 
 // ─── Built-in: Logging ───
 
+/// Middleware that logs every incoming update via .
 pub struct LoggingMiddleware;
 
 #[async_trait]
@@ -37,7 +44,13 @@ impl Middleware for LoggingMiddleware {
         );
         true
     }
-    async fn after(&self, chat_id: ChatId, _user: &UserInfo, update: &IncomingUpdate, result: &HandlerResult) {
+    async fn after(
+        &self,
+        chat_id: ChatId,
+        _user: &UserInfo,
+        update: &IncomingUpdate,
+        result: &HandlerResult,
+    ) {
         match result {
             Ok(()) => tracing::debug!(chat_id = chat_id.0, update_type = update.type_name(), "ok"),
             Err(e) => tracing::error!(chat_id = chat_id.0, error = %e, "handler error"),
@@ -47,13 +60,17 @@ impl Middleware for LoggingMiddleware {
 
 // ─── Built-in: Auth ───
 
+/// Middleware that restricts access to a set of allowed user IDs.
 pub struct AuthMiddleware {
     allowed_ids: HashSet<u64>,
 }
 
 impl AuthMiddleware {
+    /// Open or create a redb database at the given path.
     pub fn new(ids: impl IntoIterator<Item = u64>) -> Self {
-        Self { allowed_ids: ids.into_iter().collect() }
+        Self {
+            allowed_ids: ids.into_iter().collect(),
+        }
     }
 }
 
@@ -71,12 +88,14 @@ impl Middleware for AuthMiddleware {
 
 // ─── Built-in: Throttle ───
 
+/// Middleware that rate-limits updates per chat to prevent abuse.
 pub struct ThrottleMiddleware {
     max_per_second: u64,
     counter: dashmap::DashMap<ChatId, (std::time::Instant, u64)>,
 }
 
 impl ThrottleMiddleware {
+    /// Open or create a redb database at the given path.
     pub fn new(max_per_second: u64) -> Self {
         Self {
             max_per_second,
@@ -104,14 +123,21 @@ impl Middleware for ThrottleMiddleware {
         }
     }
 
-    async fn after(&self, _chat_id: ChatId, _user: &UserInfo, _update: &IncomingUpdate, _result: &HandlerResult) {
+    async fn after(
+        &self,
+        _chat_id: ChatId,
+        _user: &UserInfo,
+        _update: &IncomingUpdate,
+        _result: &HandlerResult,
+    ) {
         // Periodic cleanup: remove entries older than 60s to prevent unbounded growth.
         // Only run cleanup ~1% of the time to avoid overhead.
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n % 100 == 0 {
             let now = std::time::Instant::now();
-            self.counter.retain(|_, (ts, _)| now.duration_since(*ts).as_secs() < 60);
+            self.counter
+                .retain(|_, (ts, _)| now.duration_since(*ts).as_secs() < 60);
         }
     }
 }
@@ -120,13 +146,18 @@ impl Middleware for ThrottleMiddleware {
 
 /// Tracks total updates, unique users, screen views.
 pub struct AnalyticsMiddleware {
+    /// Total updates.
     pub total_updates: AtomicU64,
+    /// Total messages.
     pub total_messages: AtomicU64,
+    /// Total callbacks.
     pub total_callbacks: AtomicU64,
+    /// Unique users.
     pub unique_users: dashmap::DashMap<UserId, ()>,
 }
 
 impl AnalyticsMiddleware {
+    /// Open or create a redb database at the given path.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             total_updates: AtomicU64::new(0),
@@ -136,6 +167,7 @@ impl AnalyticsMiddleware {
         })
     }
 
+    /// Stats.
     pub fn stats(&self) -> (u64, u64, u64, usize) {
         (
             self.total_updates.load(Ordering::Relaxed),
@@ -162,11 +194,11 @@ impl Middleware for Arc<AnalyticsMiddleware> {
     async fn before(&self, _chat_id: ChatId, user: &UserInfo, update: &IncomingUpdate) -> bool {
         self.total_updates.fetch_add(1, Ordering::Relaxed);
         self.unique_users.insert(user.id, ());
-        match update {
-            IncomingUpdate::Message { .. } | IncomingUpdate::Photo { .. } | IncomingUpdate::Document { .. } => {
+        match &update.kind {
+            UpdateKind::Message { .. } | UpdateKind::Photo { .. } | UpdateKind::Document { .. } => {
                 self.total_messages.fetch_add(1, Ordering::Relaxed);
             }
-            IncomingUpdate::CallbackQuery { .. } => {
+            UpdateKind::CallbackQuery { .. } => {
                 self.total_callbacks.fetch_add(1, Ordering::Relaxed);
             }
             _ => {}

@@ -7,6 +7,7 @@ use crate::differ::{DiffOp, EditType};
 use crate::error::ApiError;
 use crate::types::*;
 
+/// Executes [`DiffOp`] operations against the Telegram API.
 pub struct DiffExecutor;
 
 /// Maximum FLOOD_WAIT retries per operation.
@@ -27,10 +28,14 @@ impl DiffExecutor {
 
         for op in ops {
             match op {
-                DiffOp::Send { content, send_options } => {
+                DiffOp::Send {
+                    content,
+                    send_options,
+                } => {
                     let result = Self::with_retry(|| {
                         bot.send_message(chat_id, content.clone(), send_options.clone())
-                    }).await;
+                    })
+                    .await;
 
                     match result {
                         Ok(sent) => {
@@ -40,9 +45,15 @@ impl DiffExecutor {
                         Err(ApiError::EntityBoundsInvalid) => {
                             tracing::warn!("ENTITY_BOUNDS_INVALID on send, retrying as plain text");
                             let plain = content.as_plain_text();
-                            match bot.send_message(chat_id, plain.clone(), send_options.clone()).await {
+                            match bot
+                                .send_message(chat_id, plain.clone(), send_options.clone())
+                                .await
+                            {
                                 Ok(sent) => {
-                                    tracked.push(TrackedMessage::from_content(sent.message_id, &plain));
+                                    tracked.push(TrackedMessage::from_content(
+                                        sent.message_id,
+                                        &plain,
+                                    ));
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "failed to send (plain fallback)");
@@ -58,12 +69,18 @@ impl DiffExecutor {
                     }
                 }
 
-                DiffOp::Edit { message_id, content, edit_type } => {
-                    let result = Self::execute_edit(bot, chat_id, message_id, &content, edit_type).await;
+                DiffOp::Edit {
+                    message_id,
+                    content,
+                    edit_type,
+                } => {
+                    let result =
+                        Self::execute_edit(bot, chat_id, message_id, &content, edit_type).await;
 
                     match result {
                         Ok(()) => {
-                            if let Some(t) = tracked.iter_mut().find(|t| t.message_id == message_id) {
+                            if let Some(t) = tracked.iter_mut().find(|t| t.message_id == message_id)
+                            {
                                 *t = TrackedMessage::from_content(message_id, &content);
                             }
                             tracing::debug!(msg_id = message_id.0, ?edit_type, "edited message");
@@ -71,28 +88,46 @@ impl DiffExecutor {
                         Err(ApiError::MessageNotModified) => {
                             // Content was already up-to-date on Telegram's side.
                             // Update tracked hashes to stay in sync.
-                            if let Some(t) = tracked.iter_mut().find(|t| t.message_id == message_id) {
+                            if let Some(t) = tracked.iter_mut().find(|t| t.message_id == message_id)
+                            {
                                 *t = TrackedMessage::from_content(message_id, &content);
                             }
-                            tracing::debug!(msg_id = message_id.0, "not modified (already up to date)");
+                            tracing::debug!(
+                                msg_id = message_id.0,
+                                "not modified (already up to date)"
+                            );
                         }
                         Err(ApiError::MessageNotFound) => {
                             tracing::warn!(msg_id = message_id.0, "not found, re-sending");
                             tracked.retain(|t| t.message_id != message_id);
-                            if let Ok(sent) = bot.send_message(chat_id, content.clone(), Default::default()).await {
-                                tracked.push(TrackedMessage::from_content(sent.message_id, &content));
+                            if let Ok(sent) = bot
+                                .send_message(chat_id, content.clone(), Default::default())
+                                .await
+                            {
+                                tracked
+                                    .push(TrackedMessage::from_content(sent.message_id, &content));
                             }
                         }
                         Err(ApiError::EntityBoundsInvalid) => {
-                            tracing::warn!(msg_id = message_id.0, "ENTITY_BOUNDS_INVALID on edit, retrying as plain text");
+                            tracing::warn!(
+                                msg_id = message_id.0,
+                                "ENTITY_BOUNDS_INVALID on edit, retrying as plain text"
+                            );
                             let plain = content.as_plain_text();
-                            let retry = Self::execute_edit(bot, chat_id, message_id, &plain, edit_type).await;
+                            let retry =
+                                Self::execute_edit(bot, chat_id, message_id, &plain, edit_type)
+                                    .await;
                             match retry {
                                 Ok(()) => {
-                                    if let Some(t) = tracked.iter_mut().find(|t| t.message_id == message_id) {
+                                    if let Some(t) =
+                                        tracked.iter_mut().find(|t| t.message_id == message_id)
+                                    {
                                         *t = TrackedMessage::from_content(message_id, &plain);
                                     }
-                                    tracing::debug!(msg_id = message_id.0, "edited (plain fallback)");
+                                    tracing::debug!(
+                                        msg_id = message_id.0,
+                                        "edited (plain fallback)"
+                                    );
                                 }
                                 Err(e) => {
                                     tracing::error!(msg_id = message_id.0, error = %e, "failed to edit (plain fallback)");
@@ -133,16 +168,23 @@ impl DiffExecutor {
             match edit_type {
                 EditType::Text => {
                     if let MessageContent::Text {
-                        ref text, parse_mode, ref keyboard, ref link_preview
-                    } = content {
+                        text,
+                        parse_mode,
+                        keyboard,
+                        link_preview,
+                    } = content
+                    {
                         bot.edit_message_text(
-                            chat_id, message_id,
-                            text.clone(), *parse_mode,
+                            chat_id,
+                            message_id,
+                            text.clone(),
+                            *parse_mode,
                             keyboard.clone(),
                             matches!(link_preview, LinkPreview::Enabled),
-                        ).await
+                        )
+                        .await
                     } else {
-                        unreachable!()
+                        unreachable!("EditType::Text with non-Text content")
                     }
                 }
                 EditType::Caption => {
@@ -155,18 +197,22 @@ impl DiffExecutor {
                         | MessageContent::Document { parse_mode, .. } => *parse_mode,
                         _ => ParseMode::Html,
                     };
-                    bot.edit_message_caption(chat_id, message_id, caption, pm, keyboard).await
+                    bot.edit_message_caption(chat_id, message_id, caption, pm, keyboard)
+                        .await
                 }
                 EditType::Media => {
                     let keyboard = content.keyboard();
-                    bot.edit_message_media(chat_id, message_id, content.clone(), keyboard).await
+                    bot.edit_message_media(chat_id, message_id, content.clone(), keyboard)
+                        .await
                 }
                 EditType::Keyboard => {
                     let keyboard = content.keyboard();
-                    bot.edit_message_keyboard(chat_id, message_id, keyboard).await
+                    bot.edit_message_keyboard(chat_id, message_id, keyboard)
+                        .await
                 }
             }
-        }).await
+        })
+        .await
     }
 
     /// Retry an operation on FLOOD_WAIT, up to MAX_FLOOD_RETRIES times.
@@ -185,6 +231,6 @@ impl DiffExecutor {
                 other => return other,
             }
         }
-        unreachable!()
+        unreachable!("loop with 0..=MAX_FLOOD_RETRIES always returns")
     }
 }
