@@ -17,7 +17,7 @@ pub struct Paginator<T> {
 }
 
 impl<T> Paginator<T> {
-    /// Open or create a redb database at the given path.
+    /// Create a new paginator.
     pub fn new(items: Vec<T>, page_size: usize) -> Self {
         Self {
             items,

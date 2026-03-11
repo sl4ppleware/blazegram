@@ -22,7 +22,7 @@ pub struct MockBotApi {
 }
 
 impl MockBotApi {
-    /// Open or create a redb database at the given path.
+    /// Create a new instance.
     pub fn new() -> Self {
         Self {
             counter: Arc::new(AtomicI32::new(100)),

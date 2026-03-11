@@ -48,7 +48,7 @@ pub struct GrammersAdapter {
 }
 
 impl GrammersAdapter {
-    /// Open or create a redb database at the given path.
+    /// Create a new adapter wrapping the given client.
     pub fn new(client: Client) -> Self {
         Self {
             client,

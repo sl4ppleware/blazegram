@@ -36,7 +36,7 @@ pub struct InMemoryStore {
 }
 
 impl InMemoryStore {
-    /// Open or create a redb database at the given path.
+    /// Create a new instance.
     pub fn new() -> Self {
         Self {
             states: DashMap::new(),

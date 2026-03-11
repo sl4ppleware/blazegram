@@ -24,7 +24,7 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    /// Open or create a redb database at the given path.
+    /// Create a new test harness with the given router.
     pub fn new(router: Router) -> Self {
         let store: Arc<dyn StateStore> = Arc::new(InMemoryStore::new());
         let bot = Arc::new(MockBotApi::new());

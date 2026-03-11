@@ -66,7 +66,7 @@ pub struct AuthMiddleware {
 }
 
 impl AuthMiddleware {
-    /// Open or create a redb database at the given path.
+    /// Create a new auth middleware allowing only the given user IDs.
     pub fn new(ids: impl IntoIterator<Item = u64>) -> Self {
         Self {
             allowed_ids: ids.into_iter().collect(),
@@ -95,7 +95,7 @@ pub struct ThrottleMiddleware {
 }
 
 impl ThrottleMiddleware {
-    /// Open or create a redb database at the given path.
+    /// Create a new per-chat throttle middleware.
     pub fn new(max_per_second: u64) -> Self {
         Self {
             max_per_second,
@@ -157,7 +157,7 @@ pub struct AnalyticsMiddleware {
 }
 
 impl AnalyticsMiddleware {
-    /// Open or create a redb database at the given path.
+    /// Create a new shared analytics middleware.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             total_updates: AtomicU64::new(0),
