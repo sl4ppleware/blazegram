@@ -154,7 +154,7 @@ pub enum ParseMode {
 }
 
 /// Controls whether URL previews (link thumbnails) are shown in text messages.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum LinkPreview {
     /// Show URL preview / link thumbnail.
     Enabled,
@@ -637,7 +637,7 @@ impl MessageContent {
 ///
 /// Send via [`BotApi::send_chat_action`](crate::bot_api::BotApi::send_chat_action)
 /// to let the user know the bot is working on something.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChatAction {
     /// "typing…" indicator.
     Typing,
@@ -710,7 +710,7 @@ pub type ValidatorFn = std::sync::Arc<dyn Fn(&str) -> Result<(), String> + Send 
 // ─── User Info ───
 
 /// Information about a Telegram user extracted from an incoming update.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserInfo {
     /// Telegram user ID.
     pub id: UserId,
@@ -740,7 +740,7 @@ impl UserInfo {
 ///
 /// Stores pre-computed hashes so the differ can decide which parts changed
 /// without holding the full [`MessageContent`] in memory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackedMessage {
     /// ID of the sent message.
     pub message_id: MessageId,
@@ -776,7 +776,7 @@ impl TrackedMessage {
 // ─── Sent Message ───
 
 /// Result of a successful send operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SentMessage {
     /// ID of the newly sent message.
     pub message_id: MessageId,
@@ -1082,7 +1082,7 @@ impl UpdateKind {
 ///
 /// Passed to input handlers registered with
 /// [`App::on_input`](crate::app::App) or [`Form`](crate::form::Form) photo steps.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReceivedMedia {
     /// Telegram file ID (use with [`BotApi::download_file`](crate::bot_api::BotApi::download_file)).
     pub file_id: String,
@@ -1096,8 +1096,6 @@ pub struct ReceivedMedia {
     pub filename: Option<String>,
 }
 
-/// Convenience alias for a JSON object map (`HashMap<String, serde_json::Value>`).
-pub type JsonMap = HashMap<String, serde_json::Value>;
 
 fn default_true() -> bool {
     true
@@ -1188,12 +1186,6 @@ pub enum CtxMode {
 
 // ─── Poll ───
 
-/// A single option in a Telegram poll.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PollOption {
-    /// The option’s label text.
-    pub text: String,
-}
 
 /// Configuration for sending a native Telegram poll.
 ///
@@ -1245,7 +1237,7 @@ impl Default for SendPoll {
 // ─── Dice ───
 
 /// Dice emoji type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DiceEmoji {
     /// 🎲 standard die (values 1–6).
     #[default]
@@ -1279,7 +1271,7 @@ impl DiceEmoji {
 // ─── Contact ───
 
 /// A shared contact card.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Contact {
     /// Phone number in international format.
     pub phone_number: String,
@@ -1393,7 +1385,7 @@ pub enum ChatType {
 // ─── Bot Command ───
 
 /// A bot command entry for the menu / command list.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BotCommand {
     /// The command string without the leading `/` (e.g. `"start"`).
     pub command: String,
