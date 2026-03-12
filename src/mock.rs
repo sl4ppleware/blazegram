@@ -553,4 +553,113 @@ impl BotApi for MockBotApi {
     ) -> Result<(), ApiError> {
         Ok(())
     }
+
+    async fn send_media_group(
+        &self,
+        _chat_id: ChatId,
+        _media: Vec<MediaGroupItem>,
+    ) -> Result<Vec<SentMessage>, ApiError> {
+        Ok(vec![])
+    }
+
+    async fn stop_poll(
+        &self,
+        _chat_id: ChatId,
+        _message_id: MessageId,
+    ) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn send_invoice(
+        &self,
+        chat_id: ChatId,
+        _invoice: Invoice,
+    ) -> Result<SentMessage, ApiError> {
+        let id = MessageId(self.next_id());
+        Ok(SentMessage {
+            chat_id,
+            message_id: id,
+        })
+    }
+
+    async fn restrict_chat_member(
+        &self,
+        _chat_id: ChatId,
+        _user_id: UserId,
+        _permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn promote_chat_member(
+        &self,
+        _chat_id: ChatId,
+        _user_id: UserId,
+        _permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn get_chat_member(
+        &self,
+        _chat_id: ChatId,
+        user_id: UserId,
+    ) -> Result<ChatMember, ApiError> {
+        Ok(ChatMember {
+            user: UserInfo {
+                id: user_id,
+                first_name: "Mock".to_string(),
+                last_name: None,
+                username: None,
+                language_code: None,
+            },
+            status: ChatMemberStatus::Member,
+        })
+    }
+
+    async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
+        Ok(ChatInfo {
+            id: chat_id,
+            chat_type: ChatType::Private,
+            title: Some("Mock Chat".to_string()),
+            username: None,
+            first_name: None,
+            last_name: None,
+            member_count: None,
+        })
+    }
+
+    async fn set_chat_permissions(
+        &self,
+        _chat_id: ChatId,
+        _permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn unpin_all_chat_messages(&self, _chat_id: ChatId) -> Result<(), ApiError> {
+        Ok(())
+    }
+
+    async fn create_chat_invite_link(
+        &self,
+        _chat_id: ChatId,
+        _name: Option<&str>,
+        _expire_date: Option<i64>,
+        _member_limit: Option<i32>,
+    ) -> Result<String, ApiError> {
+        Ok("https://t.me/+mock_invite_link".to_string())
+    }
+
+    async fn export_chat_invite_link(&self, _chat_id: ChatId) -> Result<String, ApiError> {
+        Ok("https://t.me/+mock_export_link".to_string())
+    }
+
+    async fn set_chat_photo(
+        &self,
+        _chat_id: ChatId,
+        _photo: FileSource,
+    ) -> Result<(), ApiError> {
+        Ok(())
+    }
 }
