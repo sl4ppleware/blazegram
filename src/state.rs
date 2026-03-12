@@ -121,9 +121,9 @@ impl InMemoryStore {
             // Versioned format
             &bytes[SNAPSHOT_MAGIC.len()..]
         } else {
-            // Legacy bincode format — try to deserialize directly for migration
-            tracing::warn!("snapshot has no version header — attempting legacy bincode migration");
-            return self.restore_legacy_bincode(&bytes);
+            // Legacy JSON format — try to deserialize directly for migration
+            tracing::warn!("snapshot has no version header — attempting legacy JSON migration");
+            return self.restore_legacy_json(&bytes);
         };
 
         let states: Vec<ChatState> = postcard::from_bytes(payload)?;
@@ -134,8 +134,8 @@ impl InMemoryStore {
         Ok(count)
     }
 
-    /// Attempt to restore from old bincode v1 format (migration path).
-    fn restore_legacy_bincode(
+    /// Attempt to restore from legacy JSON format (migration path).
+    fn restore_legacy_json(
         &self,
         bytes: &[u8],
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {

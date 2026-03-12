@@ -286,10 +286,9 @@ pub async fn start_progressive(
     Ok(spawn_progressive(editor, DEFAULT_CHAT_INTERVAL))
 }
 
-/// Create a progressive handle for an already-sent inline message.
-///
-/// Since inline messages don't go through normal `send_message`, the caller is
-/// responsible for providing the inline_message_id. Uses a custom editor closure.
+/// Create a progressive handle for an inline message using a custom editor closure.
+/// The caller must provide an EditorFn that edits the inline message.
+/// Uses the default inline interval (3s).
 pub fn start_progressive_inline(editor: EditorFn) -> ProgressiveHandle {
     spawn_progressive(editor, DEFAULT_INLINE_INTERVAL)
 }

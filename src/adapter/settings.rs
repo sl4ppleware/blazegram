@@ -86,8 +86,8 @@ impl GrammersAdapter {
                 bot: None,
                 lang_code: language_code.unwrap_or("").to_string(),
                 name: None,
-                about: description.map(|s| s.to_string()),
-                description: None,
+                about: None,
+                description: description.map(|s| s.to_string()),
             })
             .await
             .map_err(Self::convert_error)?;
@@ -108,7 +108,7 @@ impl GrammersAdapter {
             .map_err(Self::convert_error)?;
         let tl::enums::bots::BotInfo::Info(info) = result;
         Ok(BotDescription {
-            description: info.about,
+            description: info.description,
         })
     }
 
@@ -122,8 +122,8 @@ impl GrammersAdapter {
                 bot: None,
                 lang_code: language_code.unwrap_or("").to_string(),
                 name: None,
-                about: None,
-                description: short_description.map(|s| s.to_string()),
+                about: short_description.map(|s| s.to_string()),
+                description: None,
             })
             .await
             .map_err(Self::convert_error)?;
@@ -144,7 +144,7 @@ impl GrammersAdapter {
             .map_err(Self::convert_error)?;
         let tl::enums::bots::BotInfo::Info(info) = result;
         Ok(BotShortDescription {
-            short_description: info.description,
+            short_description: info.about,
         })
     }
 

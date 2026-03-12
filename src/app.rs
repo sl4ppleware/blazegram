@@ -24,7 +24,7 @@ use crate::state::{InMemoryStore, StateStore};
 use crate::types::*;
 use crate::update_parser::convert_update;
 
-/// A fully configured and running bot application.
+/// Entry point for building a Blazegram bot. Use [`App::builder`] to start.
 pub struct App;
 
 /// Fluent builder for configuring and launching an [`App`].
@@ -178,7 +178,7 @@ impl AppBuilder {
         self
     }
 
-    /// On inline.
+    /// Register a handler for inline queries. The handler receives `(ctx, query, offset)`.
     pub fn on_inline(
         mut self,
         handler: impl Fn(
@@ -222,7 +222,7 @@ impl AppBuilder {
     }
 
     /// Handler for pre-checkout queries (payment flow).
-    /// The handler should call `ctx.bot().answer_pre_checkout_query()` to approve/decline.
+    /// The handler should call `ctx.approve_checkout()` or `ctx.decline_checkout(reason)` to approve/decline.
     pub fn on_pre_checkout(
         mut self,
         handler: impl Fn(&mut Ctx) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
@@ -276,7 +276,7 @@ impl AppBuilder {
         self
     }
 
-    /// Rate limit.
+    /// Set the maximum Telegram API requests per second (wraps BotApi in a rate limiter).
     pub fn rate_limit(mut self, rps: u32) -> Self {
         self.rate_limit_rps = Some(rps);
         self
@@ -302,7 +302,7 @@ impl AppBuilder {
         self
     }
 
-    /// I18n.
+    /// Set a custom [`I18n`] instance for translations.
     pub fn i18n(self, i: I18n) -> Self {
         i18n::set_i18n(i);
         self
@@ -329,7 +329,7 @@ impl AppBuilder {
         self.store(store)
     }
 
-    /// On error.
+    /// Register a global error handler, called when any handler returns an error.
     pub fn on_error(
         mut self,
         handler: impl Fn(ChatId, HandlerError) + Send + Sync + 'static,
@@ -350,7 +350,6 @@ impl AppBuilder {
         self
     }
 
-    /// Build and run the bot. Connects via MTProto, streams updates.
     /// Build and run the bot. Phases: connect → event_loop → shutdown.
     pub async fn run(self) {
         // ━━━ Phase 1: Build state & connect ━━━

@@ -353,7 +353,7 @@ impl MessageContent {
         }
     }
 
-    /// Deterministic hash of the entire content (type + text + media + keyboard).
+    /// Deterministic hash of the entire content (type + text/caption + media + keyboard + formatting options).
     ///
     /// If two messages have the same `content_hash`, the differ skips the
     /// transition entirely — zero API calls.
@@ -448,7 +448,7 @@ impl MessageContent {
         hasher.finish()
     }
 
-    /// Hash of the text body only (for [`Text`](Self::Text) variants).
+    /// Hash of the text body and parse mode (for [`Text`](Self::Text) variants).
     ///
     /// Non-text variants all hash to the same constant, so comparing
     /// `text_hash` alone is only meaningful for text messages.
@@ -1080,8 +1080,8 @@ impl UpdateKind {
 /// A media file received from the user, normalized across photo / video /
 /// document / voice / etc. update kinds.
 ///
-/// Passed to input handlers registered with
-/// [`App::on_input`](crate::app::App) or [`Form`](crate::form::Form) photo steps.
+/// Passed to media input handlers registered with
+/// [`App::on_media_input`](crate::app::App) or [`Form`](crate::form::Form) photo steps.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivedMedia {
     /// Telegram file ID (use with [`BotApi::download_file`](crate::bot_api::BotApi::download_file)).
@@ -1108,7 +1108,7 @@ fn default_true() -> bool {
 pub struct InlineQueryResult {
     /// Unique result identifier (1–64 bytes).
     pub id: String,
-    /// The kind of inline result (article, photo, GIF).
+    /// The kind of inline result.
     pub kind: InlineResultKind,
     /// Title shown in the result list.
     pub title: Option<String>,

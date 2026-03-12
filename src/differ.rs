@@ -127,7 +127,6 @@ impl Differ {
         ops
     }
 
-    /// Strategy: delete all old messages + user messages, send all new.
     /// Attach reply_keyboard to the first Send op whose content has no inline keyboard.
     /// Returns true if successfully attached.
     fn attach_reply_keyboard(ops: &mut [DiffOp], action: &ReplyKeyboardAction) -> bool {

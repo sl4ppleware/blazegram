@@ -59,7 +59,7 @@ pub struct ScreenMessage {
 }
 
 impl Screen {
-    /// Create a multi-message screen builder with the given ID.
+    /// Create a screen builder with the given ID.
     pub fn builder(id: impl Into<ScreenId>) -> ScreenBuilder {
         ScreenBuilder {
             id: id.into(),

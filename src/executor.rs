@@ -1,6 +1,7 @@
 //! DiffOp executor — applies diff operations via BotApi.
 //!
-//! Automatically retries on FLOOD_WAIT (Telegram rate limit).
+//! Automatically retries on FLOOD_WAIT and falls back to plain text on ENTITY_BOUNDS_INVALID.
+//! Handles MessageNotFound (re-send) and MessageNotModified (sync hashes) gracefully.
 
 use crate::bot_api::BotApi;
 use crate::differ::{DiffOp, EditType};

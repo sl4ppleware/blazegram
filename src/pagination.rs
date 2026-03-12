@@ -8,7 +8,7 @@ use crate::types::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Configures how a list of items is split into pages.
 pub struct Paginator<T> {
-    /// The items on the current page.
+    /// All items to be paginated.
     pub items: Vec<T>,
     /// Page size.
     pub page_size: usize,
@@ -34,7 +34,7 @@ impl<T> Paginator<T> {
         self.items.len().div_ceil(self.page_size)
     }
 
-    /// Current items.
+    /// Items on the current page.
     pub fn current_items(&self) -> &[T] {
         let start = self.current_page * self.page_size;
         let end = (start + self.page_size).min(self.items.len());

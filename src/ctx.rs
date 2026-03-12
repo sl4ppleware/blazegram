@@ -717,7 +717,7 @@ impl Ctx {
     /// with non-string keys), the call is silently ignored and an error is logged.
     ///
     /// If the number of keys exceeds `max_state_keys` (default 1000),
-    /// the oldest non-internal key is evicted and a warning is logged.
+    /// an arbitrary non-internal key is evicted and a warning is logged.
     pub fn set<V: Serialize>(&mut self, key: &str, value: &V) {
         let val = match serde_json::to_value(value) {
             Ok(v) => v,
@@ -859,7 +859,7 @@ impl Ctx {
         Ok(sent)
     }
 
-    /// Send a notification that will be auto-deleted on next navigate().
+    /// Send a notification that will be auto-deleted on next `navigate()` (private chat mode only).
     pub async fn notify(&mut self, text: impl Into<String>) -> HandlerResult {
         let sent = self
             .bot
@@ -1019,7 +1019,7 @@ impl Ctx {
         self.bot.as_ref()
     }
 
-    /// Text from the incoming message (full, including /command).
+    /// Text from the incoming message, if any. Includes the full text (e.g. `/start payload`).
     pub fn text(&self) -> Option<&str> {
         self.message_text.as_deref()
     }
@@ -1121,7 +1121,7 @@ impl Ctx {
 
     // ─── I18n ───
 
-    /// Lang.
+    /// User's language code, or the I18n default if not set.
     pub fn lang(&self) -> &str {
         self.user
             .language_code
@@ -1134,7 +1134,7 @@ impl Ctx {
         i18n::i18n().t(self.lang(), key)
     }
 
-    /// Translate with `{ $var }` substitutions.
+    /// Translate with variable substitutions. Each `(name, value)` pair replaces `{ $name }` in the message.
     pub fn t_with(&self, key: &str, args: &[(&str, &str)]) -> String {
         i18n::i18n().t_with(self.lang(), key, args)
     }

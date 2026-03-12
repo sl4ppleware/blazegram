@@ -18,7 +18,7 @@ pub mod differ;
 pub mod executor;
 /// Inline keyboard builder with buttons, rows, grids, navigation.
 pub mod keyboard;
-/// Markup processor: `*bold*` `_italic_` → Telegram HTML, plus `escape()` helper.
+/// Markup processor: `*bold*` `_italic_` → Telegram HTML, plus HTML builder helpers and `escape()`.
 pub mod markup;
 /// Screen builder — declarative UI for chat messages.
 pub mod screen;
@@ -44,7 +44,7 @@ pub mod ctx;
 pub mod file_session;
 /// Command/callback/input router with prefix matching.
 pub mod router;
-/// Per-chat message tracking serializer (locks, state, tracked messages).
+/// Per-chat lock guaranteeing sequential update processing.
 pub mod serializer;
 /// State storage trait + in-memory store with snapshot support.
 pub mod state;
@@ -57,7 +57,7 @@ pub(crate) mod update_parser;
 pub mod broadcast;
 /// Multi-step form wizards with validation.
 pub mod form;
-/// JSON-based i18n with `{ $var }` interpolation.
+/// FTL-based i18n with `{ $var }` interpolation.
 pub mod i18n;
 /// Inline query results with builder API.
 pub mod inline;

@@ -35,7 +35,7 @@ pub type BoxTextHandler = Arc<
         + Sync,
 >;
 
-/// Boxed async inline query handler: `(Ctx) -> HandlerResult`.
+/// Boxed async inline query handler: `(Ctx, query, offset) -> HandlerResult`.
 pub type BoxInlineHandler = Arc<
     dyn Fn(&mut Ctx, String, String) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
         + Send

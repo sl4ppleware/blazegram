@@ -3,8 +3,8 @@ use thiserror::Error;
 /// API-level errors returned by Telegram.
 ///
 /// The executor retries [`TooManyRequests`](Self::TooManyRequests) automatically
-/// after the specified cooldown. [`Network`](Self::Network) errors are also
-/// considered retryable.
+/// after the specified cooldown. [`Network`](Self::Network) is marked retryable via
+/// `is_retryable()` but is not currently auto-retried by the executor.
 #[derive(Debug, Error)]
 pub enum ApiError {
     /// The target message was already deleted or doesn’t exist.

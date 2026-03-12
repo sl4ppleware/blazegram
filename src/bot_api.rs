@@ -19,7 +19,7 @@ pub struct SendOptions {
 
 /// The full Telegram Bot API abstraction.
 ///
-/// All methods have default implementations that return `ApiError::Unknown("not implemented")`.
+/// Core methods are required (no default). Optional methods return `ApiError::Unknown("not implemented")` by default.
 /// The core methods (send_message, edit_*, delete_*, answer_callback_query, send_chat_action,
 /// answer_inline_query) are required. Everything else is opt-in — implement what you need.
 #[async_trait]
@@ -136,7 +136,7 @@ pub trait BotApi: Send + Sync + 'static {
         Err(ApiError::Unknown("send_media_group not implemented".into()))
     }
 
-    /// Download a file by its file_id. Returns raw bytes.
+    /// Download a file by its file_id. Returns a `DownloadedFile` with raw bytes and optional size.
     async fn download_file(&self, file_id: &str) -> Result<DownloadedFile, ApiError> {
         let _ = file_id;
         Err(ApiError::Unknown("download_file not implemented".into()))

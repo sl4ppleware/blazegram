@@ -30,7 +30,7 @@ pub trait Middleware: Send + Sync + 'static {
 
 // ─── Built-in: Logging ───
 
-/// Middleware that logs every incoming update via .
+/// Middleware that logs every incoming update via `tracing`.
 pub struct LoggingMiddleware;
 
 #[async_trait]
@@ -144,7 +144,7 @@ impl Middleware for ThrottleMiddleware {
 
 // ─── Built-in: Analytics ───
 
-/// Tracks total updates, unique users, screen views.
+/// Tracks total updates, total messages, total callbacks, and unique users.
 pub struct AnalyticsMiddleware {
     /// Total updates.
     pub total_updates: AtomicU64,

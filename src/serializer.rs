@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use crate::state::StateStore;
 use crate::types::*;
 
-/// `ChatSerializer`.
+/// Per-chat mutex + state load/save ensuring sequential update processing.
 pub struct ChatSerializer {
     locks: DashMap<ChatId, Arc<Mutex<()>>>,
     pub(crate) store: Arc<dyn StateStore>,

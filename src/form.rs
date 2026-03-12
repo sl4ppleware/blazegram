@@ -12,17 +12,17 @@ use crate::keyboard::KeyboardBuilder;
 use crate::screen::Screen;
 use crate::types::*;
 
-/// Type alias for `FormData`.
+/// Collected form data — maps field names to their JSON values.
 pub type FormData = HashMap<String, serde_json::Value>;
 
-/// Type alias for `FormCompleteHandler`.
+/// Async handler called with the Ctx and collected FormData when a form is submitted.
 pub type FormCompleteHandler = Arc<
     dyn Fn(&mut Ctx, FormData) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
         + Send
         + Sync,
 >;
 
-/// Type alias for `FormCancelHandler`.
+/// Async handler called with the Ctx when the user cancels a form.
 pub type FormCancelHandler =
     Arc<dyn Fn(&mut Ctx) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>> + Send + Sync>;
 
@@ -43,11 +43,11 @@ pub type FormScreenFn = Arc<dyn Fn(&FormData, &str) -> Screen + Send + Sync>;
 
 /// A single step (field) in a [`Form`].
 pub struct FormStep {
-    /// Unique form identifier.
+    /// Unique step identifier.
     pub id: String,
     /// Field name (key in the result data map).
     pub field: String,
-    /// `lang` is the user's language code, passed automatically.
+    /// Function that builds the screen for this step. Receives collected data so far and the user's language code.
     pub screen_fn: FormScreenFn,
     /// How this step parses and validates input.
     pub parser: FieldParser,
