@@ -285,6 +285,79 @@ impl GrammersAdapter {
                         send_message,
                     }
                     .into(),
+                    InlineResultKind::Video { video_url, mime_type } => tl::types::InputBotInlineResult {
+                        id: r.id,
+                        r#type: "video".into(),
+                        title: r.title,
+                        description: r.description,
+                        url: Some(video_url.clone()),
+                        thumb: r.thumb_url.map(|u| {
+                            tl::types::InputWebDocument {
+                                url: u,
+                                size: 0,
+                                mime_type: "image/jpeg".into(),
+                                attributes: vec![],
+                            }
+                            .into()
+                        }),
+                        content: Some(
+                            tl::types::InputWebDocument {
+                                url: video_url,
+                                size: 0,
+                                mime_type,
+                                attributes: vec![],
+                            }
+                            .into(),
+                        ),
+                        send_message,
+                    }
+                    .into(),
+                    InlineResultKind::Voice { voice_url } => tl::types::InputBotInlineResult {
+                        id: r.id,
+                        r#type: "voice".into(),
+                        title: r.title,
+                        description: r.description,
+                        url: Some(voice_url.clone()),
+                        thumb: None,
+                        content: Some(
+                            tl::types::InputWebDocument {
+                                url: voice_url,
+                                size: 0,
+                                mime_type: "audio/ogg".into(),
+                                attributes: vec![],
+                            }
+                            .into(),
+                        ),
+                        send_message,
+                    }
+                    .into(),
+                    InlineResultKind::Document { document_url, mime_type } => tl::types::InputBotInlineResult {
+                        id: r.id,
+                        r#type: "document".into(),
+                        title: r.title,
+                        description: r.description,
+                        url: Some(document_url.clone()),
+                        thumb: r.thumb_url.map(|u| {
+                            tl::types::InputWebDocument {
+                                url: u,
+                                size: 0,
+                                mime_type: "image/jpeg".into(),
+                                attributes: vec![],
+                            }
+                            .into()
+                        }),
+                        content: Some(
+                            tl::types::InputWebDocument {
+                                url: document_url,
+                                size: 0,
+                                mime_type,
+                                attributes: vec![],
+                            }
+                            .into(),
+                        ),
+                        send_message,
+                    }
+                    .into(),
                 }
             })
             .collect();

@@ -321,6 +321,41 @@ impl InlineAnswer {
     }
 }
 
+impl From<InlineResult> for crate::types::InlineQueryResult {
+    fn from(r: InlineResult) -> Self {
+        use crate::types::InlineResultKind as TlKind;
+        let (message_text, parse_mode, keyboard) = match r.screen {
+            Some(screen) => {
+                let msg = screen.messages.into_iter().next();
+                match msg.map(|m| m.content) {
+                    Some(crate::types::MessageContent::Text { text, parse_mode, keyboard, .. }) => {
+                        (Some(text), parse_mode, keyboard)
+                    }
+                    _ => (None, crate::types::ParseMode::Html, None),
+                }
+            }
+            None => (None, crate::types::ParseMode::Html, None),
+        };
+        crate::types::InlineQueryResult {
+            id: r.id,
+            kind: match r.kind {
+                InlineResultKind::Article => TlKind::Article,
+                InlineResultKind::Photo { url } => TlKind::Photo { photo_url: url, width: None, height: None },
+                InlineResultKind::Gif { url } => TlKind::Gif { gif_url: url },
+                InlineResultKind::Video { url, mime } => TlKind::Video { video_url: url, mime_type: mime },
+                InlineResultKind::Voice { url } => TlKind::Voice { voice_url: url },
+                InlineResultKind::Document { url, mime } => TlKind::Document { document_url: url, mime_type: mime },
+            },
+            title: r.title,
+            description: r.description,
+            thumb_url: r.thumbnail_url,
+            message_text,
+            parse_mode,
+            keyboard,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1145,6 +1145,25 @@ pub enum InlineResultKind {
         /// Direct URL to the GIF file.
         gif_url: String,
     },
+    /// A video result.
+    Video {
+        /// Direct URL to the video.
+        video_url: String,
+        /// MIME type (e.g. `"video/mp4"`).
+        mime_type: String,
+    },
+    /// A voice message result.
+    Voice {
+        /// Direct URL to the OGG audio.
+        voice_url: String,
+    },
+    /// A document / file result.
+    Document {
+        /// Direct URL to the document.
+        document_url: String,
+        /// MIME type.
+        mime_type: String,
+    },
 }
 
 // ─── Ctx Mode ───
