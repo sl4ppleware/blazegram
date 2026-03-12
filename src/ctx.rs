@@ -4,6 +4,7 @@
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +12,7 @@ use crate::bot_api::{BotApi, SendOptions};
 use crate::differ::Differ;
 use crate::error::{HandlerError, HandlerResult};
 use crate::executor::DiffExecutor;
+use crate::form::{Form, FormData};
 use crate::i18n;
 use crate::screen::Screen;
 use crate::types::*;
@@ -1240,6 +1242,27 @@ impl Ctx {
             .send_invoice(self.chat_id, invoice)
             .await
             .map_err(HandlerError::Api)
+    }
+
+    /// Start a multi-step form wizard.
+    ///
+    /// Looks up the form by `form_id` in the registered forms map, initialises
+    /// form state in the chat, and navigates to the first step.
+    pub async fn start_form(
+        &mut self,
+        form_id: &str,
+        forms: &HashMap<String, Form>,
+    ) -> HandlerResult {
+        let form = forms.get(form_id).ok_or_else(|| {
+            HandlerError::Internal(anyhow::anyhow!("form '{}' not found", form_id))
+        })?;
+        self.set("__form_id", &form_id.to_string());
+        self.set("__form_step", &0usize);
+        self.set("__form_data", &FormData::new());
+        let data = FormData::new();
+        let lang = self.lang().to_string();
+        let screen = (form.steps[0].screen_fn)(&data, &lang);
+        self.navigate(screen).await
     }
 }
 

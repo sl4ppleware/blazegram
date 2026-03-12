@@ -29,7 +29,7 @@ You never manage message IDs.
 
 ```toml
 [dependencies]
-blazes = "0.4"
+blazegram = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
 

@@ -808,6 +808,10 @@ pub struct ChatState {
     #[serde(skip)]
     pub pending_callback_id: Option<String>,
     /// Arbitrary user-defined JSON data (see [`Ctx::get`](crate::ctx::Ctx::get) / [`Ctx::set`](crate::ctx::Ctx::set)).
+    ///
+    /// Uses `serde_json::Value` for maximum flexibility (any `Serialize` type).
+    /// This means postcard snapshots encode JSON-inside-binary, adding ~30% overhead
+    /// compared to a uniform format. Acceptable for typical bot state sizes (<10 KB).
     pub data: HashMap<String, serde_json::Value>,
     /// Navigation stack for [`Ctx::push`](crate::ctx::Ctx::push) / [`Ctx::pop`](crate::ctx::Ctx::pop) (max depth 20).
     pub screen_stack: Vec<ScreenId>,

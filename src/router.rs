@@ -45,7 +45,8 @@ pub type BoxInlineHandler = Arc<
 /// Central routing table that maps commands, callbacks, and inputs to handlers.
 pub struct Router {
     commands: HashMap<String, BoxHandler>,
-    callbacks: Vec<(String, BoxHandler)>,
+    callbacks: HashMap<String, BoxHandler>,
+    callback_order: Vec<String>,
     text_inputs: HashMap<ScreenId, BoxInputHandler>,
     media_inputs: HashMap<ScreenId, BoxMediaInputHandler>,
     any_text_handler: Option<BoxTextHandler>,
@@ -68,7 +69,8 @@ impl Router {
     pub fn new() -> Self {
         Self {
             commands: HashMap::new(),
-            callbacks: Vec::new(),
+            callbacks: HashMap::new(),
+            callback_order: Vec::new(),
             text_inputs: HashMap::new(),
             media_inputs: HashMap::new(),
             any_text_handler: None,
@@ -107,8 +109,9 @@ impl Router {
         + 'static,
     ) {
         // Warn about potential ambiguous callback prefixes
-        for (existing, _) in &self.callbacks {
-            if (prefix.starts_with(existing) || existing.starts_with(prefix)) && prefix != existing
+        for existing in &self.callback_order {
+            if (prefix.starts_with(existing.as_str()) || existing.starts_with(prefix))
+                && prefix != existing
             {
                 tracing::warn!(
                     new = prefix,
@@ -118,7 +121,8 @@ impl Router {
                 );
             }
         }
-        self.callbacks.push((prefix.to_string(), Arc::new(handler)));
+        self.callback_order.push(prefix.to_string());
+        self.callbacks.insert(prefix.to_string(), Arc::new(handler));
     }
 
     /// Register a text input handler for a specific screen.
@@ -330,10 +334,16 @@ impl Router {
                 if let Some(data) = data {
                     ctx.callback_data = Some(data.clone());
 
-                    for (prefix, handler) in &self.callbacks {
-                        if data == prefix || data.starts_with(&format!("{}:", prefix)) {
-                            let result = handler(ctx).await;
-                            return result;
+                    // O(1) lookup: try exact match, then progressively shorter prefixes
+                    if let Some(handler) = self.callbacks.get(data.as_str()) {
+                        return handler(ctx).await;
+                    }
+                    // Walk colons right-to-left: "a:b:c" → try "a:b", then "a"
+                    let mut remaining = data.as_str();
+                    while let Some(pos) = remaining.rfind(':') {
+                        remaining = &remaining[..pos];
+                        if let Some(handler) = self.callbacks.get(remaining) {
+                            return handler(ctx).await;
                         }
                     }
                 }

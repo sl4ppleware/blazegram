@@ -334,10 +334,10 @@ fn make_bot_editor(bot: Arc<dyn BotApi>, target: EditTarget) -> EditorFn {
                 EditTarget::Inline {
                     inline_message_id: _,
                 } => {
-                    // TODO: Inline message editing requires `edit_inline_message_text`
-                    // on the BotApi trait (or a grammers-specific downcast). For now,
-                    // callers should use `start_progressive_with_editor` and provide
-                    // their own inline edit closure.
+                    // NOTE: Inline progressive editing is not supported via the generic
+                    // BotApi trait — it would require `edit_inline_message_text` which
+                    // grammers handles differently. Use `start_progressive_with_editor`
+                    // and provide a custom editor closure for inline messages.
                     tracing::warn!(
                         "EditTarget::Inline not yet supported via make_bot_editor; \
                          use start_progressive_with_editor instead"

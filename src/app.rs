@@ -920,23 +920,3 @@ async fn advance_form_step(
     let screen = (form.steps[next_step].screen_fn)(&form_data, &lang);
     ctx.navigate(screen).await
 }
-
-impl Ctx {
-    /// Start form.
-    pub async fn start_form(
-        &mut self,
-        form_id: &str,
-        forms: &HashMap<String, Form>,
-    ) -> HandlerResult {
-        let form = forms.get(form_id).ok_or_else(|| {
-            HandlerError::Internal(anyhow::anyhow!("form '{}' not found", form_id))
-        })?;
-        self.set("__form_id", &form_id.to_string());
-        self.set("__form_step", &0usize);
-        self.set("__form_data", &FormData::new());
-        let data = FormData::new();
-        let lang = self.lang().to_string();
-        let screen = (form.steps[0].screen_fn)(&data, &lang);
-        self.navigate(screen).await
-    }
-}

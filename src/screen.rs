@@ -263,6 +263,7 @@ impl ScreenBuilder {
 // ─── Text sub-builder ───
 
 /// Sub-builder for a text message within a screen.
+#[must_use = "builder does nothing until .build() or .done() is called"]
 pub struct ScreenTextBuilder {
     parent: ScreenBuilder,
     text: String,
@@ -360,6 +361,7 @@ impl ScreenTextBuilder {
 // ─── Media sub-builder ───
 
 /// Sub-builder for a media (photo / video / document) message within a screen.
+#[must_use = "builder does nothing until .build() or .done() is called"]
 pub struct ScreenMediaBuilder {
     parent: ScreenBuilder,
     media_type: ContentType,

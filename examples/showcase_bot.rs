@@ -590,7 +590,7 @@ fn main_menu(ctx: &Ctx) -> Screen {
     Screen::text(
         "menu",
         format!(
-            "<b>{}</b>\n\n{}\n\n<i>Blazegram v0.3.0 showcase</i>",
+            "<b>{}</b>\n\n{}\n\n<i>Blazegram v0.4.0 showcase</i>",
             welcome,
             ctx.t("pick")
         ),
