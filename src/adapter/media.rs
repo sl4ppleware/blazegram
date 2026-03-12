@@ -3,6 +3,7 @@
 use grammers_client::{message::InputMessage, tl};
 
 use super::GrammersAdapter;
+use super::helpers;
 use super::helpers::rand_i64;
 use crate::bot_api::SendOptions;
 use crate::error::ApiError;
@@ -279,5 +280,252 @@ impl GrammersAdapter {
             SendOptions::default(),
         )
         .await
+    }
+
+    pub(crate) async fn impl_send_media_group(
+        &self,
+        chat_id: ChatId,
+        media: Vec<MediaGroupItem>,
+    ) -> Result<Vec<SentMessage>, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let mut tl_media: Vec<tl::enums::InputSingleMedia> = Vec::new();
+
+        for (idx, item) in media.iter().enumerate() {
+            let (source, caption, pm, is_photo) = match item {
+                MediaGroupItem::Photo {
+                    source,
+                    caption,
+                    parse_mode,
+                    ..
+                } => (source, caption.as_deref().unwrap_or(""), *parse_mode, true),
+                MediaGroupItem::Video {
+                    source,
+                    caption,
+                    parse_mode,
+                    ..
+                } => (source, caption.as_deref().unwrap_or(""), *parse_mode, false),
+                MediaGroupItem::Document {
+                    source,
+                    caption,
+                    parse_mode,
+                    ..
+                } => (source, caption.as_deref().unwrap_or(""), *parse_mode, false),
+                MediaGroupItem::Audio {
+                    source,
+                    caption,
+                    parse_mode,
+                    ..
+                } => (source, caption.as_deref().unwrap_or(""), *parse_mode, false),
+            };
+
+            let input_media: tl::enums::InputMedia = match source {
+                FileSource::Url(url) => {
+                    if is_photo {
+                        tl::types::InputMediaPhotoExternal {
+                            spoiler: false,
+                            url: url.clone(),
+                            ttl_seconds: None,
+                        }
+                        .into()
+                    } else {
+                        tl::types::InputMediaDocumentExternal {
+                            spoiler: false,
+                            url: url.clone(),
+                            ttl_seconds: None,
+                            video_cover: None,
+                            video_timestamp: None,
+                        }
+                        .into()
+                    }
+                }
+                FileSource::LocalPath(path) => {
+                    let uploaded = self
+                        .client
+                        .upload_file(path)
+                        .await
+                        .map_err(|e| ApiError::Unknown(format!("upload: {e}")))?;
+                    if is_photo {
+                        tl::types::InputMediaUploadedPhoto {
+                            spoiler: false,
+                            file: uploaded.raw,
+                            stickers: None,
+                            ttl_seconds: None,
+                        }
+                        .into()
+                    } else {
+                        tl::types::InputMediaUploadedDocument {
+                            nosound_video: false,
+                            force_file: false,
+                            spoiler: false,
+                            file: uploaded.raw,
+                            thumb: None,
+                            mime_type: "application/octet-stream".into(),
+                            attributes: vec![],
+                            stickers: None,
+                            video_cover: None,
+                            video_timestamp: None,
+                            ttl_seconds: None,
+                        }
+                        .into()
+                    }
+                }
+                FileSource::Bytes { data, filename } => {
+                    let mut cursor = std::io::Cursor::new(data.clone());
+                    let uploaded = self
+                        .client
+                        .upload_stream(&mut cursor, data.len(), filename.clone())
+                        .await
+                        .map_err(|e| ApiError::Unknown(format!("upload: {e}")))?;
+                    if is_photo {
+                        tl::types::InputMediaUploadedPhoto {
+                            spoiler: false,
+                            file: uploaded.raw,
+                            stickers: None,
+                            ttl_seconds: None,
+                        }
+                        .into()
+                    } else {
+                        tl::types::InputMediaUploadedDocument {
+                            nosound_video: false,
+                            force_file: false,
+                            spoiler: false,
+                            file: uploaded.raw,
+                            thumb: None,
+                            mime_type: "application/octet-stream".into(),
+                            attributes: vec![],
+                            stickers: None,
+                            video_cover: None,
+                            video_timestamp: None,
+                            ttl_seconds: None,
+                        }
+                        .into()
+                    }
+                }
+                FileSource::FileId(fid) => {
+                    return Err(ApiError::Unknown(format!(
+                        "FileId '{}...' cannot be sent via MTProto in media groups",
+                        &fid[..fid.len().min(20)]
+                    )));
+                }
+            };
+
+            let (message, entities) = match pm {
+                ParseMode::Html => {
+                    let (plain, ents) = grammers_client::parsers::parse_html_message(caption);
+                    (plain, if ents.is_empty() { None } else { Some(ents) })
+                }
+                _ => (caption.to_string(), None),
+            };
+
+            tl_media.push(
+                tl::types::InputSingleMedia {
+                    media: input_media,
+                    random_id: rand_i64() + idx as i64,
+                    message,
+                    entities,
+                }
+                .into(),
+            );
+        }
+
+        let result = self
+            .client
+            .invoke(&tl::functions::messages::SendMultiMedia {
+                silent: false,
+                background: false,
+                clear_draft: false,
+                noforwards: false,
+                update_stickersets_order: false,
+                invert_media: false,
+                allow_paid_floodskip: false,
+                peer: peer.into(),
+                reply_to: None,
+                multi_media: tl_media,
+                schedule_date: None,
+                send_as: None,
+                quick_reply_shortcut: None,
+                effect: None,
+                allow_paid_stars: None,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+
+        let ids = helpers::extract_all_msg_ids(&result);
+        Ok(ids
+            .into_iter()
+            .map(|id| SentMessage {
+                message_id: MessageId(id),
+                chat_id,
+            })
+            .collect())
+    }
+
+    pub(crate) async fn impl_send_invoice(
+        &self,
+        chat_id: ChatId,
+        invoice: Invoice,
+    ) -> Result<SentMessage, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let prices: Vec<tl::enums::LabeledPrice> = invoice
+            .prices
+            .iter()
+            .map(|(label, amount)| {
+                tl::types::LabeledPrice {
+                    label: label.clone(),
+                    amount: *amount,
+                }
+                .into()
+            })
+            .collect();
+
+        let tl_invoice = tl::types::Invoice {
+            test: false,
+            name_requested: invoice.need_name,
+            phone_requested: invoice.need_phone_number,
+            email_requested: invoice.need_email,
+            shipping_address_requested: invoice.need_shipping_address,
+            flexible: invoice.is_flexible,
+            phone_to_provider: false,
+            email_to_provider: false,
+            recurring: false,
+            currency: invoice.currency,
+            prices,
+            max_tip_amount: None,
+            suggested_tip_amounts: None,
+            terms_url: None,
+            subscription_period: None,
+        };
+
+        let media: tl::enums::InputMedia = tl::types::InputMediaInvoice {
+            title: invoice.title,
+            description: invoice.description,
+            photo: invoice.photo_url.map(|url| {
+                tl::types::InputWebDocument {
+                    url,
+                    size: 0,
+                    mime_type: "image/jpeg".into(),
+                    attributes: vec![],
+                }
+                .into()
+            }),
+            invoice: tl_invoice.into(),
+            payload: invoice.payload.into_bytes(),
+            provider: Some(invoice.provider_token.unwrap_or_default()),
+            provider_data: tl::types::DataJson { data: "{}".into() }.into(),
+            start_param: invoice.start_parameter,
+            extended_media: None,
+        }
+        .into();
+
+        let msg = InputMessage::new().media(media);
+        let sent = self
+            .client
+            .send_message(peer, msg)
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(SentMessage {
+            message_id: MessageId(sent.id()),
+            chat_id,
+        })
     }
 }

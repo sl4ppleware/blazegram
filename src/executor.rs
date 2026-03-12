@@ -235,3 +235,121 @@ impl DiffExecutor {
         unreachable!("loop with 0..=MAX_FLOOD_RETRIES always returns")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bot_api::SendOptions;
+    use crate::mock::MockBotApi;
+
+    fn text_content(t: &str) -> MessageContent {
+        MessageContent::Text {
+            text: t.to_string(),
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            link_preview: LinkPreview::Disabled,
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_send() {
+        let bot = MockBotApi::new();
+        let chat = ChatId(1);
+        let content = text_content("Hello");
+        let ops = vec![DiffOp::Send {
+            content: content.clone(),
+            send_options: SendOptions::default(),
+        }];
+        let mut tracked = Vec::new();
+        DiffExecutor::execute(&bot, chat, ops, &mut tracked)
+            .await
+            .unwrap();
+        assert_eq!(tracked.len(), 1);
+        assert_eq!(bot.call_count_async().await, 1);
+    }
+
+    #[tokio::test]
+    async fn execute_delete() {
+        let bot = MockBotApi::new();
+        let chat = ChatId(1);
+        let msg_id = MessageId(42);
+        let content = text_content("Old");
+        let mut tracked = vec![TrackedMessage::from_content(msg_id, &content)];
+        let ops = vec![DiffOp::Delete {
+            message_ids: vec![msg_id],
+        }];
+        DiffExecutor::execute(&bot, chat, ops, &mut tracked)
+            .await
+            .unwrap();
+        assert!(tracked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn execute_edit_text() {
+        let bot = MockBotApi::new();
+        let chat = ChatId(1);
+        let msg_id = MessageId(10);
+        let old_content = text_content("Old");
+        let new_content = text_content("New");
+        let mut tracked = vec![TrackedMessage::from_content(msg_id, &old_content)];
+        let ops = vec![DiffOp::Edit {
+            message_id: msg_id,
+            content: new_content.clone(),
+            edit_type: EditType::Text,
+        }];
+        DiffExecutor::execute(&bot, chat, ops, &mut tracked)
+            .await
+            .unwrap();
+        assert_eq!(tracked.len(), 1);
+        assert_eq!(tracked[0].content_hash, new_content.content_hash());
+    }
+
+    #[tokio::test]
+    async fn execute_empty_ops() {
+        let bot = MockBotApi::new();
+        let mut tracked = Vec::new();
+        DiffExecutor::execute(&bot, ChatId(1), vec![], &mut tracked)
+            .await
+            .unwrap();
+        assert_eq!(bot.call_count_async().await, 0);
+    }
+
+    #[tokio::test]
+    async fn execute_edit_keyboard_only() {
+        let bot = MockBotApi::new();
+        let chat = ChatId(1);
+        let msg_id = MessageId(5);
+        let content = text_content("Same text");
+        let mut tracked = vec![TrackedMessage::from_content(msg_id, &content)];
+        let ops = vec![DiffOp::Edit {
+            message_id: msg_id,
+            content: content.clone(),
+            edit_type: EditType::Keyboard,
+        }];
+        DiffExecutor::execute(&bot, chat, ops, &mut tracked)
+            .await
+            .unwrap();
+        assert_eq!(tracked.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn execute_multiple_ops() {
+        let bot = MockBotApi::new();
+        let chat = ChatId(1);
+        let ops = vec![
+            DiffOp::Send {
+                content: text_content("A"),
+                send_options: SendOptions::default(),
+            },
+            DiffOp::Send {
+                content: text_content("B"),
+                send_options: SendOptions::default(),
+            },
+        ];
+        let mut tracked = Vec::new();
+        DiffExecutor::execute(&bot, chat, ops, &mut tracked)
+            .await
+            .unwrap();
+        assert_eq!(tracked.len(), 2);
+    }
+}

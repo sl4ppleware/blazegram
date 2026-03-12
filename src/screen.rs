@@ -480,3 +480,178 @@ impl ScreenInputBuilder {
         self.parent
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_text_basic() {
+        let s = Screen::text("home", "Hello").build();
+        assert_eq!(s.id, ScreenId::from("home"));
+        assert_eq!(s.messages.len(), 1);
+        assert!(matches!(
+            &s.messages[0].content,
+            MessageContent::Text { text, parse_mode: ParseMode::Html, .. } if text == "Hello"
+        ));
+    }
+
+    #[test]
+    fn screen_reply_text() {
+        let s = Screen::reply_text("Hi");
+        assert_eq!(s.id, ScreenId::from("__reply__"));
+    }
+
+    #[test]
+    fn screen_photo_with_caption_and_spoiler() {
+        let s = Screen::builder("gallery")
+            .photo("https://example.com/pic.jpg")
+            .caption("Nice")
+            .spoiler()
+            .build();
+        assert_eq!(s.messages.len(), 1);
+        match &s.messages[0].content {
+            MessageContent::Photo {
+                caption, spoiler, ..
+            } => {
+                assert_eq!(caption.as_deref(), Some("Nice"));
+                assert!(spoiler);
+            }
+            _ => panic!("expected Photo"),
+        }
+    }
+
+    #[test]
+    fn screen_multi_message() {
+        let s = Screen::builder("multi")
+            .text("First")
+            .done()
+            .text("Second")
+            .done()
+            .build();
+        assert_eq!(s.messages.len(), 2);
+    }
+
+    #[test]
+    fn screen_expect_text_with_placeholder() {
+        let s = Screen::builder("input")
+            .text("Enter name:")
+            .done()
+            .expect_text()
+            .placeholder("Your name")
+            .build();
+        assert!(s.input.is_some());
+        match &s.input {
+            Some(InputSpec::Text { placeholder, .. }) => {
+                assert_eq!(placeholder.as_deref(), Some("Your name"));
+            }
+            _ => panic!("expected Text input"),
+        }
+    }
+
+    #[test]
+    fn screen_expect_choice() {
+        let s = Screen::builder("choose")
+            .text("Pick one")
+            .done()
+            .expect_choice(vec!["A".into(), "B".into()])
+            .build();
+        match &s.input {
+            Some(InputSpec::Choice { options }) => {
+                assert_eq!(options.len(), 2);
+            }
+            _ => panic!("expected Choice input"),
+        }
+    }
+
+    #[test]
+    fn screen_typing_and_protect() {
+        let s = Screen::builder("sec")
+            .typing()
+            .protect_content()
+            .text("Secret")
+            .build();
+        assert!(s.typing_action.is_some());
+        assert!(s.protect_content);
+    }
+
+    #[test]
+    fn screen_reply_keyboard() {
+        let s = Screen::builder("kb")
+            .text("Choose")
+            .reply_keyboard(vec![vec!["A", "B"]])
+            .build();
+        assert!(s.reply_keyboard.is_some());
+        match &s.reply_keyboard {
+            Some(ReplyKeyboardAction::Show { rows, .. }) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].len(), 2);
+            }
+            _ => panic!("expected Show"),
+        }
+    }
+
+    #[test]
+    fn screen_remove_reply_keyboard() {
+        let s = Screen::builder("rm")
+            .remove_reply_keyboard()
+            .text("Done")
+            .build();
+        assert!(matches!(
+            s.reply_keyboard,
+            Some(ReplyKeyboardAction::Remove)
+        ));
+    }
+
+    #[test]
+    fn screen_document() {
+        let s = Screen::builder("doc")
+            .document("https://example.com/file.pdf")
+            .caption("PDF")
+            .build();
+        assert!(matches!(
+            &s.messages[0].content,
+            MessageContent::Document { .. }
+        ));
+    }
+
+    #[test]
+    fn screen_video() {
+        let s = Screen::builder("vid")
+            .video("https://example.com/v.mp4")
+            .build();
+        assert!(matches!(
+            &s.messages[0].content,
+            MessageContent::Video { .. }
+        ));
+    }
+
+    #[test]
+    fn screen_link_preview() {
+        let s = Screen::text("lp", "Check https://example.com")
+            .link_preview(LinkPreview::Enabled)
+            .build();
+        match &s.messages[0].content {
+            MessageContent::Text { link_preview, .. } => {
+                assert_eq!(*link_preview, LinkPreview::Enabled);
+            }
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn screen_text_chain() {
+        let s = Screen::builder("chain")
+            .text("A")
+            .text("B")
+            .text("C")
+            .build();
+        assert_eq!(s.messages.len(), 3);
+    }
+
+    #[test]
+    fn screen_empty_builds() {
+        let s = Screen::builder("empty").build();
+        assert!(s.messages.is_empty());
+    }
+}

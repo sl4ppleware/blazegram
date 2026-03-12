@@ -786,4 +786,72 @@ impl BotApi for GrammersAdapter {
     async fn refund_star_payment(&self, user_id: UserId, charge_id: &str) -> Result<(), ApiError> {
         self.impl_refund_star_payment(user_id, charge_id).await
     }
+    async fn send_media_group(
+        &self,
+        chat_id: ChatId,
+        media: Vec<MediaGroupItem>,
+    ) -> Result<Vec<SentMessage>, ApiError> {
+        self.impl_send_media_group(chat_id, media).await
+    }
+    async fn send_invoice(
+        &self,
+        chat_id: ChatId,
+        invoice: Invoice,
+    ) -> Result<SentMessage, ApiError> {
+        self.impl_send_invoice(chat_id, invoice).await
+    }
+    async fn get_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+    ) -> Result<ChatMember, ApiError> {
+        self.impl_get_chat_member(chat_id, user_id).await
+    }
+    async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
+        self.impl_get_chat(chat_id).await
+    }
+    async fn set_chat_permissions(
+        &self,
+        chat_id: ChatId,
+        permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        self.impl_set_chat_permissions(chat_id, &permissions).await
+    }
+    async fn set_chat_photo(&self, chat_id: ChatId, photo: FileSource) -> Result<(), ApiError> {
+        self.impl_set_chat_photo(chat_id, photo).await
+    }
+    async fn unpin_all_chat_messages(&self, chat_id: ChatId) -> Result<(), ApiError> {
+        self.impl_unpin_all_chat_messages(chat_id).await
+    }
+    async fn create_chat_invite_link(
+        &self,
+        chat_id: ChatId,
+        name: Option<&str>,
+        expire_date: Option<i64>,
+        member_limit: Option<i32>,
+    ) -> Result<String, ApiError> {
+        self.impl_create_chat_invite_link(chat_id, name, expire_date, member_limit)
+            .await
+    }
+    async fn revoke_chat_invite_link(
+        &self,
+        chat_id: ChatId,
+        invite_link: &str,
+    ) -> Result<ChatInviteLink, ApiError> {
+        self.impl_revoke_chat_invite_link(chat_id, invite_link)
+            .await
+    }
+    async fn answer_shipping_query(
+        &self,
+        shipping_query_id: String,
+        ok: bool,
+        shipping_options: Option<Vec<ShippingOption>>,
+        error_message: Option<String>,
+    ) -> Result<(), ApiError> {
+        self.impl_answer_shipping_query(shipping_query_id, ok, shipping_options, error_message)
+            .await
+    }
+    async fn create_invoice_link(&self, invoice: Invoice) -> Result<String, ApiError> {
+        self.impl_create_invoice_link(invoice).await
+    }
 }

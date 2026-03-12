@@ -445,3 +445,136 @@ impl FormStepIntBuilder {
         self.done().build()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ctx::Ctx;
+    use crate::error::HandlerResult;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    fn dummy_handler()
+    -> impl Fn(&mut Ctx, FormData) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+    + Send
+    + Sync
+    + 'static {
+        |_ctx: &mut Ctx, _data: FormData| Box::pin(async { Ok(()) })
+    }
+
+    fn dummy_cancel()
+    -> impl Fn(&mut Ctx) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+    + Send
+    + Sync
+    + 'static {
+        |_ctx: &mut Ctx| Box::pin(async { Ok(()) })
+    }
+
+    #[test]
+    fn form_builder_text_step() {
+        let form = Form::builder("reg")
+            .text_step("name", "name", "What is your name?")
+            .done()
+            .on_complete(dummy_handler())
+            .build();
+        assert_eq!(form.id, "reg");
+        assert_eq!(form.steps.len(), 1);
+        assert_eq!(form.steps[0].id, "name");
+    }
+
+    #[test]
+    fn form_builder_multiple_steps() {
+        let form = Form::builder("survey")
+            .text_step("q1", "answer1", "Question 1?")
+            .done()
+            .text_step("q2", "answer2", "Question 2?")
+            .done()
+            .on_complete(dummy_handler())
+            .build();
+        assert_eq!(form.steps.len(), 2);
+    }
+
+    #[test]
+    fn form_builder_integer_step() {
+        let form = Form::builder("age")
+            .integer_step("age", "age", "How old are you?")
+            .min(1)
+            .max(150)
+            .done()
+            .on_complete(dummy_handler())
+            .build();
+        assert_eq!(form.steps.len(), 1);
+        assert!(matches!(form.steps[0].parser, FieldParser::Integer { .. }));
+    }
+
+    #[test]
+    fn form_builder_choice_step() {
+        let form = Form::builder("pick")
+            .choice_step(
+                "color",
+                "color",
+                "Pick a color",
+                vec![("Red", "red"), ("Blue", "blue")],
+            )
+            .on_complete(dummy_handler())
+            .build();
+        assert_eq!(form.steps.len(), 1);
+        assert!(matches!(form.steps[0].parser, FieldParser::Choice { .. }));
+    }
+
+    #[test]
+    fn field_parser_text_valid() {
+        let parser = FieldParser::Text { validator: None };
+        assert!(parser.validate("anything", "en").is_ok());
+    }
+
+    #[test]
+    fn field_parser_text_with_validator() {
+        let parser = FieldParser::Text {
+            validator: Some(std::sync::Arc::new(|s| {
+                if s.len() >= 3 {
+                    Ok(())
+                } else {
+                    Err("too short".into())
+                }
+            })),
+        };
+        assert!(parser.validate("abc", "en").is_ok());
+        assert!(parser.validate("ab", "en").is_err());
+    }
+
+    #[test]
+    fn field_parser_integer() {
+        let parser = FieldParser::Integer {
+            min: Some(1),
+            max: Some(100),
+        };
+        assert!(parser.validate("50", "en").is_ok());
+        assert!(parser.validate("0", "en").is_err());
+        assert!(parser.validate("101", "en").is_err());
+        assert!(parser.validate("abc", "en").is_err());
+    }
+
+    #[test]
+    fn field_parser_choice() {
+        let parser = FieldParser::Choice {
+            options: vec![
+                ("A Label".into(), "a".into()),
+                ("B Label".into(), "b".into()),
+            ],
+        };
+        assert!(parser.validate("a", "en").is_ok());
+        assert!(parser.validate("c", "en").is_err());
+    }
+
+    #[test]
+    fn form_has_cancel_handler() {
+        let form = Form::builder("x")
+            .text_step("s", "f", "Q")
+            .done()
+            .on_cancel(dummy_cancel())
+            .on_complete(dummy_handler())
+            .build();
+        assert!(form.on_cancel.is_some());
+    }
+}

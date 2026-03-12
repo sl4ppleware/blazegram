@@ -611,4 +611,416 @@ impl GrammersAdapter {
             .map_err(Self::convert_error)?;
         Ok(())
     }
+
+    pub(crate) async fn impl_get_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+    ) -> Result<ChatMember, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
+        let input_peer_user: tl::enums::InputPeer = tl::types::InputPeerUser {
+            user_id: user_peer.id.bare_id(),
+            access_hash: user_peer.auth.hash(),
+        }
+        .into();
+        let result = self
+            .client
+            .invoke(&tl::functions::channels::GetParticipant {
+                channel: peer.into(),
+                participant: input_peer_user,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+
+        let tl::enums::channels::ChannelParticipant::Participant(p) = result;
+        let status = match &p.participant {
+            tl::enums::ChannelParticipant::Participant(_)
+            | tl::enums::ChannelParticipant::ParticipantSelf(_) => ChatMemberStatus::Member,
+            tl::enums::ChannelParticipant::Creator(_) => ChatMemberStatus::Creator,
+            tl::enums::ChannelParticipant::Admin(_) => ChatMemberStatus::Administrator,
+            tl::enums::ChannelParticipant::Banned(cp) => {
+                let tl::enums::ChatBannedRights::Rights(rights) = &cp.banned_rights;
+                if rights.view_messages {
+                    ChatMemberStatus::Banned
+                } else {
+                    ChatMemberStatus::Restricted
+                }
+            }
+            tl::enums::ChannelParticipant::Left(_) => ChatMemberStatus::Left,
+        };
+        // Find user in participants response
+        let user_info = Self::extract_user_from_list(&p.users, user_id.0 as i64);
+        Ok(ChatMember {
+            user: user_info,
+            status,
+        })
+    }
+
+    fn extract_user_from_list(users: &[tl::enums::User], user_id: i64) -> UserInfo {
+        for u in users {
+            if let tl::enums::User::User(user) = u {
+                if user.id == user_id {
+                    return UserInfo {
+                        id: UserId(user.id as u64),
+                        first_name: user.first_name.clone().unwrap_or_default(),
+                        last_name: user.last_name.clone(),
+                        username: user.username.clone(),
+                        language_code: user.lang_code.clone(),
+                    };
+                }
+            }
+        }
+        UserInfo {
+            id: UserId(user_id as u64),
+            first_name: String::new(),
+            last_name: None,
+            username: None,
+            language_code: None,
+        }
+    }
+
+    pub(crate) async fn impl_get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let result = self
+            .client
+            .invoke(&tl::functions::messages::GetFullChat {
+                chat_id: peer.id.bare_id(),
+            })
+            .await;
+        match result {
+            Ok(tl::enums::messages::ChatFull::Full(full)) => {
+                let chat_info = match &full.full_chat {
+                    tl::enums::ChatFull::Full(cf) => {
+                        let (title, member_count) = full
+                            .chats
+                            .iter()
+                            .find_map(|c| match c {
+                                tl::enums::Chat::Chat(ch) if ch.id == cf.id => {
+                                    Some((Some(ch.title.clone()), Some(ch.participants_count)))
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or((None, None));
+                        ChatInfo {
+                            id: chat_id,
+                            chat_type: ChatType::Group,
+                            title,
+                            username: None,
+                            first_name: None,
+                            last_name: None,
+                            member_count,
+                        }
+                    }
+                    tl::enums::ChatFull::ChannelFull(cf) => {
+                        let (title, username) = full
+                            .chats
+                            .iter()
+                            .find_map(|c| match c {
+                                tl::enums::Chat::Channel(ch) if ch.id == cf.id => {
+                                    Some((ch.title.clone(), ch.username.clone()))
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or_default();
+                        ChatInfo {
+                            id: chat_id,
+                            chat_type: ChatType::Supergroup,
+                            title: Some(title),
+                            username,
+                            first_name: None,
+                            last_name: None,
+                            member_count: cf.participants_count,
+                        }
+                    }
+                };
+                Ok(chat_info)
+            }
+            Err(e) => Err(Self::convert_error(e)),
+        }
+    }
+
+    pub(crate) async fn impl_set_chat_permissions(
+        &self,
+        chat_id: ChatId,
+        permissions: &ChatPermissions,
+    ) -> Result<(), ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let banned_rights = tl::types::ChatBannedRights {
+            view_messages: false,
+            send_messages: !permissions.can_send_messages.unwrap_or(true),
+            send_media: !permissions.can_send_media_messages.unwrap_or(true),
+            send_stickers: !permissions.can_send_other_messages.unwrap_or(true),
+            send_gifs: !permissions.can_send_other_messages.unwrap_or(true),
+            send_games: !permissions.can_send_other_messages.unwrap_or(true),
+            send_inline: !permissions.can_send_other_messages.unwrap_or(true),
+            embed_links: !permissions.can_add_web_page_previews.unwrap_or(true),
+            send_polls: !permissions.can_send_polls.unwrap_or(true),
+            change_info: !permissions.can_change_info.unwrap_or(true),
+            invite_users: !permissions.can_invite_users.unwrap_or(true),
+            pin_messages: !permissions.can_pin_messages.unwrap_or(true),
+            manage_topics: false,
+            send_photos: !permissions.can_send_media_messages.unwrap_or(true),
+            send_videos: !permissions.can_send_media_messages.unwrap_or(true),
+            send_roundvideos: !permissions.can_send_media_messages.unwrap_or(true),
+            send_audios: !permissions.can_send_media_messages.unwrap_or(true),
+            send_voices: !permissions.can_send_media_messages.unwrap_or(true),
+            send_docs: !permissions.can_send_media_messages.unwrap_or(true),
+            send_plain: !permissions.can_send_messages.unwrap_or(true),
+            until_date: 0,
+        };
+        let input_peer: tl::enums::InputPeer = if chat_id.0 < 0 {
+            tl::types::InputPeerChannel {
+                channel_id: peer.id.bare_id(),
+                access_hash: peer.auth.hash(),
+            }
+            .into()
+        } else {
+            tl::types::InputPeerChat {
+                chat_id: peer.id.bare_id(),
+            }
+            .into()
+        };
+        self.client
+            .invoke(&tl::functions::messages::EditChatDefaultBannedRights {
+                peer: input_peer,
+                banned_rights: banned_rights.into(),
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn impl_set_chat_photo(
+        &self,
+        chat_id: ChatId,
+        photo: FileSource,
+    ) -> Result<(), ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let uploaded = match &photo {
+            FileSource::LocalPath(path) => self
+                .client
+                .upload_file(path)
+                .await
+                .map_err(|e| ApiError::Unknown(format!("upload: {e}")))?,
+            FileSource::Bytes { data, filename } => {
+                let mut cursor = std::io::Cursor::new(data.clone());
+                self.client
+                    .upload_stream(&mut cursor, data.len(), filename.clone())
+                    .await
+                    .map_err(|e| ApiError::Unknown(format!("upload: {e}")))?
+            }
+            _ => {
+                return Err(ApiError::Unknown(
+                    "set_chat_photo requires LocalPath or Bytes".into(),
+                ));
+            }
+        };
+        let input_photo: tl::enums::InputChatPhoto = tl::types::InputChatUploadedPhoto {
+            file: Some(uploaded.raw),
+            video: None,
+            video_start_ts: None,
+            video_emoji_markup: None,
+        }
+        .into();
+        self.client
+            .invoke(&tl::functions::channels::EditPhoto {
+                channel: peer.into(),
+                photo: input_photo,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn impl_unpin_all_chat_messages(
+        &self,
+        chat_id: ChatId,
+    ) -> Result<(), ApiError> {
+        let peer = self.resolve(chat_id)?;
+        self.client
+            .invoke(&tl::functions::messages::UnpinAllMessages {
+                peer: peer.into(),
+                top_msg_id: None,
+                saved_peer_id: None,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn impl_create_chat_invite_link(
+        &self,
+        chat_id: ChatId,
+        _name: Option<&str>,
+        expire_date: Option<i64>,
+        member_limit: Option<i32>,
+    ) -> Result<String, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let result = self
+            .client
+            .invoke(&tl::functions::messages::ExportChatInvite {
+                legacy_revoke_permanent: false,
+                request_needed: false,
+                peer: peer.into(),
+                expire_date: expire_date.map(|d| d as i32),
+                usage_limit: member_limit,
+                title: None,
+                subscription_pricing: None,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        match result {
+            tl::enums::ExportedChatInvite::ChatInviteExported(inv) => Ok(inv.link),
+            tl::enums::ExportedChatInvite::ChatInvitePublicJoinRequests => {
+                Err(ApiError::Unknown("public join requests — no link".into()))
+            }
+        }
+    }
+
+    pub(crate) async fn impl_revoke_chat_invite_link(
+        &self,
+        chat_id: ChatId,
+        invite_link: &str,
+    ) -> Result<ChatInviteLink, ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let result = self
+            .client
+            .invoke(&tl::functions::messages::EditExportedChatInvite {
+                revoked: true,
+                peer: peer.into(),
+                link: invite_link.to_string(),
+                expire_date: None,
+                usage_limit: None,
+                request_needed: None,
+                title: None,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+
+        let inv = match result {
+            tl::enums::messages::ExportedChatInvite::Invite(i) => i.invite,
+            tl::enums::messages::ExportedChatInvite::Replaced(r) => r.invite,
+        };
+        match inv {
+            tl::enums::ExportedChatInvite::ChatInviteExported(i) => Ok(ChatInviteLink {
+                invite_link: i.link,
+                creator: None,
+                creates_join_request: i.request_needed,
+                is_primary: i.permanent,
+                is_revoked: i.revoked,
+                name: i.title,
+                expire_date: i.expire_date.map(|d| d as i64),
+                member_limit: i.usage_limit,
+                pending_join_request_count: i.requested,
+            }),
+            tl::enums::ExportedChatInvite::ChatInvitePublicJoinRequests => {
+                Err(ApiError::Unknown("public join requests — no link".into()))
+            }
+        }
+    }
+
+    pub(crate) async fn impl_answer_shipping_query(
+        &self,
+        shipping_query_id: String,
+        ok: bool,
+        shipping_options: Option<Vec<ShippingOption>>,
+        error_message: Option<String>,
+    ) -> Result<(), ApiError> {
+        let query_id: i64 = shipping_query_id.parse().map_err(|_| {
+            ApiError::Unknown(format!("invalid shipping query id: {shipping_query_id}"))
+        })?;
+        let options: Vec<tl::enums::ShippingOption> = shipping_options
+            .unwrap_or_default()
+            .into_iter()
+            .map(|opt| {
+                tl::types::ShippingOption {
+                    id: opt.id,
+                    title: opt.title,
+                    prices: opt
+                        .prices
+                        .into_iter()
+                        .map(|(label, amount)| tl::types::LabeledPrice { label, amount }.into())
+                        .collect(),
+                }
+                .into()
+            })
+            .collect();
+        self.client
+            .invoke(&tl::functions::messages::SetBotShippingResults {
+                query_id,
+                error: if ok { None } else { error_message },
+                shipping_options: if ok { Some(options) } else { None },
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn impl_create_invoice_link(
+        &self,
+        invoice: Invoice,
+    ) -> Result<String, ApiError> {
+        let prices: Vec<tl::enums::LabeledPrice> = invoice
+            .prices
+            .iter()
+            .map(|(label, amount)| {
+                tl::types::LabeledPrice {
+                    label: label.clone(),
+                    amount: *amount,
+                }
+                .into()
+            })
+            .collect();
+
+        let tl_invoice = tl::types::Invoice {
+            test: false,
+            name_requested: invoice.need_name,
+            phone_requested: invoice.need_phone_number,
+            email_requested: invoice.need_email,
+            shipping_address_requested: invoice.need_shipping_address,
+            flexible: invoice.is_flexible,
+            phone_to_provider: false,
+            email_to_provider: false,
+            recurring: false,
+            currency: invoice.currency,
+            prices,
+            max_tip_amount: None,
+            suggested_tip_amounts: None,
+            terms_url: None,
+            subscription_period: None,
+        };
+
+        let input_media: tl::enums::InputMedia = tl::types::InputMediaInvoice {
+            title: invoice.title,
+            description: invoice.description,
+            photo: invoice.photo_url.map(|url| {
+                tl::types::InputWebDocument {
+                    url,
+                    size: 0,
+                    mime_type: "image/jpeg".into(),
+                    attributes: vec![],
+                }
+                .into()
+            }),
+            invoice: tl_invoice.into(),
+            payload: invoice.payload.into_bytes(),
+            provider: Some(invoice.provider_token.unwrap_or_default()),
+            provider_data: tl::types::DataJson { data: "{}".into() }.into(),
+            start_param: invoice.start_parameter,
+            extended_media: None,
+        }
+        .into();
+
+        let result = self
+            .client
+            .invoke(&tl::functions::payments::ExportInvoice {
+                invoice_media: input_media,
+            })
+            .await
+            .map_err(Self::convert_error)?;
+
+        let tl::enums::payments::ExportedInvoice::Invoice(exported) = result;
+        Ok(exported.url)
+    }
 }

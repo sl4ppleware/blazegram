@@ -22,6 +22,7 @@
 //! ```
 
 use crate::screen::Screen;
+use crate::types::InlineResultKind;
 
 // ─── InlineResult ───
 
@@ -41,42 +42,6 @@ pub struct InlineResult {
     /// Screen content (text + keyboard) for the message that will be sent
     /// when the user taps this result.
     pub screen: Option<Screen>,
-}
-
-/// The content type of an inline result.
-#[derive(Debug, Clone)]
-pub enum InlineResultKind {
-    /// Text article (most common).
-    Article,
-    /// Photo result.
-    Photo {
-        /// Direct URL to the photo.
-        url: String,
-    },
-    /// GIF animation.
-    Gif {
-        /// Direct URL to the GIF.
-        url: String,
-    },
-    /// Video result.
-    Video {
-        /// Direct URL to the video.
-        url: String,
-        /// MIME type (e.g. `"video/mp4"`).
-        mime: String,
-    },
-    /// Voice message.
-    Voice {
-        /// Direct URL to the OGG audio.
-        url: String,
-    },
-    /// Document / file.
-    Document {
-        /// Direct URL to the document.
-        url: String,
-        /// MIME type.
-        mime: String,
-    },
 }
 
 impl InlineResult {
@@ -323,7 +288,6 @@ impl InlineAnswer {
 
 impl From<InlineResult> for crate::types::InlineQueryResult {
     fn from(r: InlineResult) -> Self {
-        use crate::types::InlineResultKind as TlKind;
         let (message_text, parse_mode, keyboard) = match r.screen {
             Some(screen) => {
                 let msg = screen.messages.into_iter().next();
@@ -341,24 +305,7 @@ impl From<InlineResult> for crate::types::InlineQueryResult {
         };
         crate::types::InlineQueryResult {
             id: r.id,
-            kind: match r.kind {
-                InlineResultKind::Article => TlKind::Article,
-                InlineResultKind::Photo { url } => TlKind::Photo {
-                    photo_url: url,
-                    width: None,
-                    height: None,
-                },
-                InlineResultKind::Gif { url } => TlKind::Gif { gif_url: url },
-                InlineResultKind::Video { url, mime } => TlKind::Video {
-                    video_url: url,
-                    mime_type: mime,
-                },
-                InlineResultKind::Voice { url } => TlKind::Voice { voice_url: url },
-                InlineResultKind::Document { url, mime } => TlKind::Document {
-                    document_url: url,
-                    mime_type: mime,
-                },
-            },
+            kind: r.kind,
             title: r.title,
             description: r.description,
             thumb_url: r.thumbnail_url,

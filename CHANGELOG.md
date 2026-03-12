@@ -2,6 +2,28 @@
 
 ## [0.4.1] — 2026-03-12
 
+### Added
+
+- **adapter**: 15 previously unimplemented BotApi methods now implemented:
+  `send_media_group`, `send_invoice`, `create_invoice_link`, `answer_shipping_query`,
+  `get_chat_member`, `get_chat`, `set_chat_permissions`, `set_chat_photo`,
+  `unpin_all_chat_messages`, `create_chat_invite_link`, `revoke_chat_invite_link`.
+  Forum convenience methods (`close_forum_topic`, `reopen_forum_topic`,
+  `hide_general_forum_topic`, `unhide_general_forum_topic`) delegate to `edit_forum_topic`.
+- **types**: `types.rs` (1 704 LOC) split into `types/` module: `mod.rs` (IDs, hasher,
+  InlineQueryResult), `content.rs` (MessageContent, ContentType, FileSource),
+  `chat.rs` (ChatState, UserInfo, TrackedMessage, CtxMode), `update.rs` (IncomingUpdate,
+  UpdateKind, ReceivedMedia), `telegram.rs` (all remaining Telegram API types).
+- **inline**: `InlineResultKind` unified — single type shared between `types::InlineResultKind`
+  and `inline::InlineResult`. Removed duplicate enum and `From` mapping. Field names
+  simplified (`photo_url` → `url`, `mime_type` → `mime`).
+- **tests**: 41 new unit tests for previously untested core modules:
+  - `ctx.rs`: state get/set/remove, callback parsing, freeze/unfreeze, lang, max_state_keys.
+  - `executor.rs`: send, delete, edit text/keyboard, empty ops, multiple ops.
+  - `screen.rs`: text, photo, video, document, multi-message, reply keyboard, input builders.
+  - `form.rs`: builder API, all field parsers (text, integer, choice), cancel handler.
+  Total test count: 109 → 150.
+
 ### Fixed
 
 - **update_parser**: Parse all media types from MTProto (voice, video, video note,
@@ -18,16 +40,12 @@
   send_media_group, stop_poll, send_invoice, restrict/promote/get_chat_member, get_chat,
   set_chat_permissions, unpin_all_chat_messages, create/export_chat_invite_link,
   set_chat_photo).
-
-### Added
-
 - **adapter**: `restrict_chat_member` — maps `ChatPermissions` to `ChatBannedRights`.
 - **adapter**: `promote_chat_member` — maps `ChatPermissions` to `ChatAdminRights`.
 - **testing**: `TestApp` expanded with simulation methods for voice, video, sticker,
   location, contact, member joined/left, pre-checkout, and successful payment.
 - **testing**: 13 new integration tests covering command routing, callback routing with
   prefix matching, member events, payment flows, and all media input types.
-  Total test count: 96 → 109.
 
 ## [0.4.0] — 2026-03-11
 
@@ -68,6 +86,7 @@
 
 - Initial public release.
 
+[0.4.1]: https://github.com/sl4ppleware/blazegram/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sl4ppleware/blazegram/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/sl4ppleware/blazegram/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sl4ppleware/blazegram/releases/tag/v0.3.0

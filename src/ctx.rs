@@ -1274,3 +1274,140 @@ impl Ctx {
 fn rand_i64() -> i64 {
     fastrand::i64(..)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::MockBotApi;
+    use std::sync::Arc;
+
+    fn make_ctx() -> Ctx {
+        let user = UserInfo {
+            id: UserId(123),
+            first_name: "Test".into(),
+            last_name: None,
+            username: Some("testuser".into()),
+            language_code: Some("en".into()),
+        };
+        let state = ChatState::new(ChatId(123), user);
+        let bot: Arc<dyn BotApi> = Arc::new(MockBotApi::new());
+        Ctx::new(state, bot, None)
+    }
+
+    #[test]
+    fn ctx_set_get_remove() {
+        let mut ctx = make_ctx();
+        ctx.set("name", &"Alice");
+        let name: String = ctx.get("name").unwrap();
+        assert_eq!(name, "Alice");
+        ctx.remove("name");
+        assert!(ctx.get::<String>("name").is_none());
+    }
+
+    #[test]
+    fn ctx_set_get_complex_types() {
+        let mut ctx = make_ctx();
+        ctx.set("count", &42i64);
+        let count: i64 = ctx.get("count").unwrap();
+        assert_eq!(count, 42);
+        ctx.set("items", &vec!["a", "b", "c"]);
+        let items: Vec<String> = ctx.get("items").unwrap();
+        assert_eq!(items.len(), 3);
+    }
+
+    #[test]
+    fn ctx_clear_data() {
+        let mut ctx = make_ctx();
+        ctx.set("a", &1);
+        ctx.set("b", &2);
+        ctx.clear_data();
+        assert!(ctx.get::<i32>("a").is_none());
+        assert!(ctx.get::<i32>("b").is_none());
+    }
+
+    #[test]
+    fn ctx_state_and_set_state() {
+        let mut ctx = make_ctx();
+        let st: String = ctx.state();
+        assert_eq!(st, ""); // default for String
+        ctx.set_state(&"home".to_string());
+        let st2: String = ctx.state();
+        assert_eq!(st2, "home");
+    }
+
+    #[test]
+    fn ctx_user_info() {
+        let ctx = make_ctx();
+        assert_eq!(ctx.user.first_name, "Test");
+        assert_eq!(ctx.chat_id, ChatId(123));
+    }
+
+    #[test]
+    fn ctx_callback_data() {
+        let user = UserInfo {
+            id: UserId(1),
+            first_name: "U".into(),
+            last_name: None,
+            username: None,
+            language_code: None,
+        };
+        let state = ChatState::new(ChatId(1), user);
+        let bot: Arc<dyn BotApi> = Arc::new(MockBotApi::new());
+        let ctx = Ctx::new(state, bot, Some("action:view:42".into()));
+        assert_eq!(ctx.callback_data(), Some("action:view:42"));
+        // callback_params skips first segment
+        assert_eq!(ctx.callback_params(), vec!["view", "42"]);
+        // callback_param returns the first param (second segment)
+        assert_eq!(ctx.callback_param(), Some("view".to_string()));
+    }
+
+    #[test]
+    fn ctx_deep_link() {
+        let mut ctx = make_ctx();
+        assert!(ctx.deep_link().is_none());
+        ctx.deep_link = Some("ref_abc".into());
+        assert_eq!(ctx.deep_link(), Some("ref_abc"));
+    }
+
+    #[test]
+    fn ctx_text() {
+        let mut ctx = make_ctx();
+        assert!(ctx.text().is_none());
+        ctx.message_text = Some("hello world".into());
+        assert_eq!(ctx.text(), Some("hello world"));
+    }
+
+    #[test]
+    fn ctx_freeze_unfreeze() {
+        let mut ctx = make_ctx();
+        let mid = MessageId(10);
+        ctx.freeze_message(mid);
+        assert!(ctx.state.frozen_messages.contains(&mid));
+        ctx.unfreeze_message(mid);
+        assert!(!ctx.state.frozen_messages.contains(&mid));
+    }
+
+    #[test]
+    fn ctx_lang() {
+        let ctx = make_ctx();
+        assert_eq!(ctx.lang(), "en");
+    }
+
+    #[test]
+    fn ctx_current_screen() {
+        let ctx = make_ctx();
+        assert_eq!(*ctx.current_screen(), ScreenId::from("__initial__"));
+    }
+
+    #[test]
+    fn ctx_max_state_keys_enforced() {
+        let mut ctx = make_ctx();
+        ctx.max_state_keys = 2;
+        ctx.set("a", &1);
+        ctx.set("b", &2);
+        // Third key evicts the oldest
+        ctx.set("c", &3);
+        assert_eq!(ctx.state.data.len(), 2);
+        assert!(ctx.get::<i32>("c").is_some());
+    }
+}
