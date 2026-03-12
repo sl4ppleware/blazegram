@@ -534,6 +534,24 @@ impl BotApi for GrammersAdapter {
     async fn unban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
         self.impl_unban_chat_member(chat_id, user_id).await
     }
+    async fn restrict_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        self.impl_restrict_chat_member(chat_id, user_id, &permissions)
+            .await
+    }
+    async fn promote_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: ChatPermissions,
+    ) -> Result<(), ApiError> {
+        self.impl_promote_chat_member(chat_id, user_id, &permissions)
+            .await
+    }
     async fn get_chat_member_count(&self, chat_id: ChatId) -> Result<i32, ApiError> {
         self.impl_get_chat_member_count(chat_id).await
     }

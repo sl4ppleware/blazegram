@@ -507,4 +507,108 @@ impl GrammersAdapter {
             .map_err(Self::convert_error)?;
         Ok(())
     }
+
+    pub(crate) async fn impl_restrict_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: &ChatPermissions,
+    ) -> Result<(), ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
+        let input_peer_user: tl::enums::InputPeer = tl::types::InputPeerUser {
+            user_id: user_peer.id.bare_id(),
+            access_hash: user_peer.auth.hash(),
+        }
+        .into();
+
+        // In ChatBannedRights, `true` means BANNED (i.e. the right is taken away).
+        // In our ChatPermissions, `true` means ALLOWED.
+        // So we invert: banned = !allowed.
+        let no_send = !permissions.can_send_messages.unwrap_or(true);
+        let no_media = !permissions.can_send_media_messages.unwrap_or(true);
+        let no_polls = !permissions.can_send_polls.unwrap_or(true);
+        let no_other = !permissions.can_send_other_messages.unwrap_or(true);
+        let no_links = !permissions.can_add_web_page_previews.unwrap_or(true);
+        let no_info = !permissions.can_change_info.unwrap_or(true);
+        let no_invite = !permissions.can_invite_users.unwrap_or(true);
+        let no_pin = !permissions.can_pin_messages.unwrap_or(true);
+
+        self.client
+            .invoke(&tl::functions::channels::EditBanned {
+                channel: peer.into(),
+                participant: input_peer_user,
+                banned_rights: tl::types::ChatBannedRights {
+                    view_messages: false,
+                    send_messages: no_send,
+                    send_media: no_media,
+                    send_stickers: no_other,
+                    send_gifs: no_other,
+                    send_games: no_other,
+                    send_inline: no_other,
+                    embed_links: no_links,
+                    send_polls: no_polls,
+                    change_info: no_info,
+                    invite_users: no_invite,
+                    pin_messages: no_pin,
+                    manage_topics: no_pin,
+                    send_photos: no_media,
+                    send_videos: no_media,
+                    send_roundvideos: no_media,
+                    send_audios: no_media,
+                    send_voices: no_media,
+                    send_docs: no_media,
+                    send_plain: no_send,
+                    until_date: 0,
+                }
+                .into(),
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
+
+    pub(crate) async fn impl_promote_chat_member(
+        &self,
+        chat_id: ChatId,
+        user_id: UserId,
+        permissions: &ChatPermissions,
+    ) -> Result<(), ApiError> {
+        let peer = self.resolve(chat_id)?;
+        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
+        let input_user: tl::enums::InputUser = tl::types::InputUser {
+            user_id: user_peer.id.bare_id(),
+            access_hash: user_peer.auth.hash(),
+        }
+        .into();
+
+        self.client
+            .invoke(&tl::functions::channels::EditAdmin {
+                channel: peer.into(),
+                user_id: input_user,
+                admin_rights: tl::types::ChatAdminRights {
+                    change_info: permissions.can_change_info.unwrap_or(false),
+                    post_messages: false,
+                    edit_messages: false,
+                    delete_messages: false,
+                    ban_users: false,
+                    invite_users: permissions.can_invite_users.unwrap_or(false),
+                    pin_messages: permissions.can_pin_messages.unwrap_or(false),
+                    add_admins: false,
+                    anonymous: false,
+                    manage_call: false,
+                    other: false,
+                    manage_topics: false,
+                    post_stories: false,
+                    edit_stories: false,
+                    delete_stories: false,
+                    manage_direct_messages: false,
+                }
+                .into(),
+                rank: String::new(),
+            })
+            .await
+            .map_err(Self::convert_error)?;
+        Ok(())
+    }
 }
