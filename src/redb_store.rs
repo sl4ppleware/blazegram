@@ -59,11 +59,18 @@ impl RedbStore {
 impl StateStore for RedbStore {
     async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
         let db = self.db.clone();
+        let id = chat_id.0;
         tokio::task::spawn_blocking(move || {
             let txn = db.begin_read().ok()?;
             let table = txn.open_table(STATE_TABLE).ok()?;
-            let guard = table.get(chat_id.0).ok()??;
-            serde_json::from_slice(guard.value()).ok()
+            let guard = table.get(id).ok()??;
+            match serde_json::from_slice(guard.value()) {
+                Ok(state) => Some(state),
+                Err(e) => {
+                    tracing::warn!(chat_id = id, error = %e, "corrupt state in redb — treating as fresh");
+                    None
+                }
+            }
         })
         .await
         .ok()
@@ -80,7 +87,7 @@ impl StateStore for RedbStore {
             }
         };
         let chat_id = state.chat_id.0;
-        let _ = tokio::task::spawn_blocking(move || {
+        if let Err(e) = tokio::task::spawn_blocking(move || {
             let txn = db.begin_write()?;
             {
                 let mut table = txn.open_table(STATE_TABLE)?;
@@ -89,21 +96,30 @@ impl StateStore for RedbStore {
             txn.commit()?;
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         })
-        .await;
+        .await
+        .unwrap_or_else(|e| Err(e.into()))
+        {
+            tracing::error!(chat_id, error = %e, "failed to save state to redb");
+        }
     }
 
     async fn delete(&self, chat_id: ChatId) {
         let db = self.db.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let id = chat_id.0;
+        if let Err(e) = tokio::task::spawn_blocking(move || {
             let txn = db.begin_write()?;
             {
                 let mut table = txn.open_table(STATE_TABLE)?;
-                table.remove(chat_id.0)?;
+                table.remove(id)?;
             }
             txn.commit()?;
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         })
-        .await;
+        .await
+        .unwrap_or_else(|e| Err(e.into()))
+        {
+            tracing::error!(chat_id = id, error = %e, "failed to delete state from redb");
+        }
     }
 
     async fn all_chat_ids(&self) -> Vec<ChatId> {

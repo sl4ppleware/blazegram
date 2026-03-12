@@ -61,22 +61,48 @@ impl StateStore for RedisStore {
     async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
         let mut conn = self.pool.get().await.ok()?;
         let bytes: Option<Vec<u8>> = conn.get(self.key(chat_id)).await.ok()?;
-        bytes.and_then(|b| serde_json::from_slice(&b).ok())
+        bytes.and_then(|b| match serde_json::from_slice(&b) {
+            Ok(state) => Some(state),
+            Err(e) => {
+                tracing::warn!(chat_id = chat_id.0, error = %e, "corrupt state in redis — treating as fresh");
+                None
+            }
+        })
     }
 
     async fn save(&self, state: &ChatState) {
-        if let Ok(mut conn) = self.pool.get().await {
-            if let Ok(bytes) = serde_json::to_vec(state) {
-                let _: Result<(), _> = conn
-                    .set_ex(self.key(state.chat_id), bytes, self.ttl.as_secs())
-                    .await;
+        let bytes = match serde_json::to_vec(state) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to serialize state for redis");
+                return;
             }
+        };
+        let mut conn = match self.pool.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "redis pool error on save");
+                return;
+            }
+        };
+        if let Err(e) = conn
+            .set_ex::<_, _, ()>(self.key(state.chat_id), bytes, self.ttl.as_secs())
+            .await
+        {
+            tracing::error!(chat_id = state.chat_id.0, error = %e, "failed to save state to redis");
         }
     }
 
     async fn delete(&self, chat_id: ChatId) {
-        if let Ok(mut conn) = self.pool.get().await {
-            let _: Result<(), _> = conn.del(self.key(chat_id)).await;
+        let mut conn = match self.pool.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "redis pool error on delete");
+                return;
+            }
+        };
+        if let Err(e) = conn.del::<_, ()>(self.key(chat_id)).await {
+            tracing::error!(chat_id = chat_id.0, error = %e, "failed to delete state from redis");
         }
     }
 

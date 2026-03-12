@@ -713,14 +713,19 @@ impl Ctx {
 
     /// Store a value in the per-chat state under the given key.
     ///
-    /// The value is serialized to JSON. Panics if the value cannot be
-    /// represented as JSON (e.g. `f64::NAN`). All standard Rust types,
-    /// `serde`-derived structs, and collections serialize without issue.
+    /// The value is serialized to JSON. If serialization fails (e.g. a map
+    /// with non-string keys), the call is silently ignored and an error is logged.
     ///
     /// If the number of keys exceeds `max_state_keys` (default 1000),
     /// the oldest non-internal key is evicted and a warning is logged.
     pub fn set<V: Serialize>(&mut self, key: &str, value: &V) {
-        let val = serde_json::to_value(value).expect("value must be JSON-serializable");
+        let val = match serde_json::to_value(value) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(key, error = %e, "failed to serialize state value — ignoring set()");
+                return;
+            }
+        };
 
         // If key already exists, just overwrite — no size change.
         if self.state.data.contains_key(key) {
