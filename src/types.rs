@@ -1096,7 +1096,6 @@ pub struct ReceivedMedia {
     pub filename: Option<String>,
 }
 
-
 fn default_true() -> bool {
     true
 }
@@ -1185,7 +1184,6 @@ pub enum CtxMode {
 }
 
 // ─── Poll ───
-
 
 /// Configuration for sending a native Telegram poll.
 ///

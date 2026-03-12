@@ -285,7 +285,10 @@ impl GrammersAdapter {
                         send_message,
                     }
                     .into(),
-                    InlineResultKind::Video { video_url, mime_type } => tl::types::InputBotInlineResult {
+                    InlineResultKind::Video {
+                        video_url,
+                        mime_type,
+                    } => tl::types::InputBotInlineResult {
                         id: r.id,
                         r#type: "video".into(),
                         title: r.title,
@@ -331,7 +334,10 @@ impl GrammersAdapter {
                         send_message,
                     }
                     .into(),
-                    InlineResultKind::Document { document_url, mime_type } => tl::types::InputBotInlineResult {
+                    InlineResultKind::Document {
+                        document_url,
+                        mime_type,
+                    } => tl::types::InputBotInlineResult {
                         id: r.id,
                         r#type: "document".into(),
                         title: r.title,
