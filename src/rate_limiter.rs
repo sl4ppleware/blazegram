@@ -852,7 +852,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
         self.rate_limited_call(Some(chat_id), || {
-            self.inner.set_chat_permissions(chat_id, permissions.clone())
+            self.inner
+                .set_chat_permissions(chat_id, permissions.clone())
         })
         .await
     }
@@ -891,10 +892,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
     }
 
     async fn set_chat_title(&self, chat_id: ChatId, title: &str) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.set_chat_title(chat_id, title)
-        })
-        .await
+        self.rate_limited_call(Some(chat_id), || self.inner.set_chat_title(chat_id, title))
+            .await
     }
 
     async fn set_chat_description(
@@ -916,10 +915,8 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
     }
 
     async fn delete_chat_photo(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.delete_chat_photo(chat_id)
-        })
-        .await
+        self.rate_limited_call(Some(chat_id), || self.inner.delete_chat_photo(chat_id))
+            .await
     }
 
     async fn get_chat_administrators(&self, chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
@@ -947,7 +944,9 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         limit: Option<i32>,
     ) -> Result<UserProfilePhotos, ApiError> {
         // Read-only
-        self.inner.get_user_profile_photos(user_id, offset, limit).await
+        self.inner
+            .get_user_profile_photos(user_id, offset, limit)
+            .await
     }
 
     // ── Bot settings (bypass — low frequency, no chat context) ──
@@ -961,7 +960,9 @@ impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
         description: Option<&str>,
         language_code: Option<&str>,
     ) -> Result<(), ApiError> {
-        self.inner.set_my_description(description, language_code).await
+        self.inner
+            .set_my_description(description, language_code)
+            .await
     }
 
     async fn get_my_description(

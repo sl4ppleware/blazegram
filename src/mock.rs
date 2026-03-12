@@ -562,11 +562,7 @@ impl BotApi for MockBotApi {
         Ok(vec![])
     }
 
-    async fn stop_poll(
-        &self,
-        _chat_id: ChatId,
-        _message_id: MessageId,
-    ) -> Result<(), ApiError> {
+    async fn stop_poll(&self, _chat_id: ChatId, _message_id: MessageId) -> Result<(), ApiError> {
         Ok(())
     }
 
@@ -655,11 +651,7 @@ impl BotApi for MockBotApi {
         Ok("https://t.me/+mock_export_link".to_string())
     }
 
-    async fn set_chat_photo(
-        &self,
-        _chat_id: ChatId,
-        _photo: FileSource,
-    ) -> Result<(), ApiError> {
+    async fn set_chat_photo(&self, _chat_id: ChatId, _photo: FileSource) -> Result<(), ApiError> {
         Ok(())
     }
 }

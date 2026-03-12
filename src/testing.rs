@@ -110,12 +110,7 @@ impl TestApp {
     }
 
     /// Simulate a voice message.
-    pub async fn send_voice(
-        &self,
-        chat_id: i64,
-        file_id: &str,
-        duration: i32,
-    ) -> HandlerResult {
+    pub async fn send_voice(&self, chat_id: i64, file_id: &str, duration: i32) -> HandlerResult {
         let msg_id = MessageId(self.bot.next_id());
         let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
@@ -188,12 +183,7 @@ impl TestApp {
     }
 
     /// Simulate a contact message.
-    pub async fn send_contact(
-        &self,
-        chat_id: i64,
-        phone: &str,
-        first_name: &str,
-    ) -> HandlerResult {
+    pub async fn send_contact(&self, chat_id: i64, phone: &str, first_name: &str) -> HandlerResult {
         let msg_id = MessageId(self.bot.next_id());
         let update = IncomingUpdate {
             chat_id: ChatId(chat_id),
@@ -321,7 +311,12 @@ impl TestApp {
                         | UpdateKind::LocationReceived { .. } => {
                             ctx.incoming_message_id = incoming.message_id;
                         }
-                        UpdateKind::PreCheckoutQuery { id, currency, total_amount, payload } => {
+                        UpdateKind::PreCheckoutQuery {
+                            id,
+                            currency,
+                            total_amount,
+                            payload,
+                        } => {
                             ctx.payment = crate::ctx::PaymentContext {
                                 query_id: Some(id.clone()),
                                 payload: Some(payload.clone()),
@@ -329,7 +324,11 @@ impl TestApp {
                                 total_amount: Some(*total_amount),
                             };
                         }
-                        UpdateKind::SuccessfulPayment { currency, total_amount, payload } => {
+                        UpdateKind::SuccessfulPayment {
+                            currency,
+                            total_amount,
+                            payload,
+                        } => {
                             ctx.payment = crate::ctx::PaymentContext {
                                 query_id: None,
                                 payload: Some(payload.clone()),
@@ -404,33 +403,45 @@ mod tests {
     fn make_router() -> Router {
         let mut router = Router::new();
 
-        router.command("start", handler!(ctx => {
-            ctx.navigate(Screen::text("home", "Welcome!")
-                .keyboard(|kb| kb.button("Count", "counter:0"))
-                .build()
-            ).await?;
-            Ok(())
-        }));
+        router.command(
+            "start",
+            handler!(ctx => {
+                ctx.navigate(Screen::text("home", "Welcome!")
+                    .keyboard(|kb| kb.button("Count", "counter:0"))
+                    .build()
+                ).await?;
+                Ok(())
+            }),
+        );
 
-        router.callback("counter", handler!(ctx => {
-            let count: i32 = ctx.callback_param_as().unwrap_or(0);
-            let next = count + 1;
-            ctx.navigate(Screen::text("counter", format!("Count: {}", count))
-                .keyboard(|kb| kb.button("Next", format!("counter:{}", next)))
-                .build()
-            ).await?;
-            Ok(())
-        }));
+        router.callback(
+            "counter",
+            handler!(ctx => {
+                let count: i32 = ctx.callback_param_as().unwrap_or(0);
+                let next = count + 1;
+                ctx.navigate(Screen::text("counter", format!("Count: {}", count))
+                    .keyboard(|kb| kb.button("Next", format!("counter:{}", next)))
+                    .build()
+                ).await?;
+                Ok(())
+            }),
+        );
 
-        router.on_input("input_screen", handler!(ctx, text => {
-            ctx.set("last_input", &text);
-            Ok(())
-        }));
+        router.on_input(
+            "input_screen",
+            handler!(ctx, text => {
+                ctx.set("last_input", &text);
+                Ok(())
+            }),
+        );
 
-        router.on_media_input("media_screen", handler!(ctx, media => {
-            ctx.set("last_media_type", &format!("{:?}", media.file_type));
-            Ok(())
-        }));
+        router.on_media_input(
+            "media_screen",
+            handler!(ctx, media => {
+                ctx.set("last_media_type", &format!("{:?}", media.file_type));
+                Ok(())
+            }),
+        );
 
         router.on_pre_checkout(handler!(ctx => {
             ctx.approve_checkout().await?;
@@ -503,7 +514,10 @@ mod tests {
         app.simulate_member_joined(1).await.unwrap();
 
         let state = app.state(1).await.unwrap();
-        assert_eq!(state.data.get("member_joined"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            state.data.get("member_joined"),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[tokio::test]
@@ -512,7 +526,10 @@ mod tests {
         app.simulate_member_left(1).await.unwrap();
 
         let state = app.state(1).await.unwrap();
-        assert_eq!(state.data.get("member_left"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            state.data.get("member_left"),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[tokio::test]
@@ -526,7 +543,9 @@ mod tests {
     #[tokio::test]
     async fn test_successful_payment() {
         let app = TestApp::new(make_router());
-        app.simulate_successful_payment(1, "USD", 999, "order_456").await.unwrap();
+        app.simulate_successful_payment(1, "USD", 999, "order_456")
+            .await
+            .unwrap();
 
         let state = app.state(1).await.unwrap();
         assert_eq!(state.data.get("paid"), Some(&serde_json::json!(true)));
