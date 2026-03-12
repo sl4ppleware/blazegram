@@ -20,7 +20,7 @@ pub(crate) async fn convert_update(update: &Update) -> Option<(IncomingUpdate, P
             let chat_id = ChatId(peer_ref.id.bot_api_dialog_id());
             let message_id = MessageId(msg.id());
 
-            // Check media types via raw TL
+            // Check media / service types via raw TL
             let raw_msg = &msg.raw;
             if let tl::enums::Update::NewMessage(tl::types::UpdateNewMessage { message, .. })
             | tl::enums::Update::NewChannelMessage(tl::types::UpdateNewChannelMessage {
@@ -28,58 +28,22 @@ pub(crate) async fn convert_update(update: &Update) -> Option<(IncomingUpdate, P
                 ..
             }) = raw_msg
             {
+                // ── Service messages (member join/left, payments) ──
+                if let tl::enums::Message::Service(svc) = message {
+                    return convert_service_message(svc, chat_id, user, message_id, peer_ref);
+                }
+
                 if let tl::enums::Message::Message(m) = message {
-                    // Photo
-                    if let Some(tl::enums::MessageMedia::Photo(photo)) = &m.media {
-                        if let Some(tl::enums::Photo::Photo(p)) = &photo.photo {
-                            return Some((
-                                IncomingUpdate {
-                                    chat_id,
-                                    user,
-                                    message_id: Some(message_id),
-                                    kind: UpdateKind::Photo {
-                                        file_id: p.id.to_string(),
-                                        file_unique_id: p.id.to_string(),
-                                        caption: if m.message.is_empty() {
-                                            None
-                                        } else {
-                                            Some(m.message.clone())
-                                        },
-                                    },
-                                },
-                                peer_ref,
-                            ));
-                        }
-                    }
-                    // Document
-                    if let Some(tl::enums::MessageMedia::Document(doc)) = &m.media {
-                        if let Some(tl::enums::Document::Document(d)) = &doc.document {
-                            let filename = d.attributes.iter().find_map(|a| {
-                                if let tl::enums::DocumentAttribute::Filename(f) = a {
-                                    Some(f.file_name.clone())
-                                } else {
-                                    None
-                                }
-                            });
-                            return Some((
-                                IncomingUpdate {
-                                    chat_id,
-                                    user,
-                                    message_id: Some(message_id),
-                                    kind: UpdateKind::Document {
-                                        file_id: d.id.to_string(),
-                                        file_unique_id: d.id.to_string(),
-                                        filename,
-                                        caption: if m.message.is_empty() {
-                                            None
-                                        } else {
-                                            Some(m.message.clone())
-                                        },
-                                    },
-                                },
-                                peer_ref,
-                            ));
-                        }
+                    if let Some(kind) = convert_media(m, &user) {
+                        return Some((
+                            IncomingUpdate {
+                                chat_id,
+                                user,
+                                message_id: Some(message_id),
+                                kind,
+                            },
+                            peer_ref,
+                        ));
                     }
                 }
             }
@@ -279,9 +243,236 @@ pub(crate) async fn convert_update(update: &Update) -> Option<(IncomingUpdate, P
             ))
         }
 
+        // ── Raw updates: pre-checkout queries ──
+        Update::Raw(raw) => convert_raw_update(raw).await,
+
         _ => None,
     }
 }
+
+// ─── Media detection from NewMessage ───
+
+/// Try to detect a specific media/content type from a TL message.
+/// Returns `None` if the message should be treated as a plain text message.
+fn convert_media(m: &tl::types::Message, _user: &UserInfo) -> Option<UpdateKind> {
+    let media = m.media.as_ref()?;
+
+    match media {
+        // ── Photo ──
+        tl::enums::MessageMedia::Photo(photo) => {
+            if let Some(tl::enums::Photo::Photo(p)) = &photo.photo {
+                return Some(UpdateKind::Photo {
+                    file_id: p.id.to_string(),
+                    file_unique_id: p.id.to_string(),
+                    caption: non_empty(&m.message),
+                });
+            }
+            None
+        }
+
+        // ── Document (voice, video, video_note, sticker, generic file) ──
+        tl::enums::MessageMedia::Document(doc) => {
+            let d = match &doc.document {
+                Some(tl::enums::Document::Document(d)) => d,
+                _ => return None,
+            };
+
+            let attrs = &d.attributes;
+            let file_id = d.id.to_string();
+            let file_unique_id = d.id.to_string();
+
+            // Check attributes to determine the exact type
+            for attr in attrs {
+                match attr {
+                    // Voice message (Audio with voice=true)
+                    tl::enums::DocumentAttribute::Audio(audio) if audio.voice => {
+                        return Some(UpdateKind::Voice {
+                            file_id,
+                            file_unique_id,
+                            duration: audio.duration,
+                            caption: non_empty(&m.message),
+                        });
+                    }
+
+                    // Sticker
+                    tl::enums::DocumentAttribute::Sticker(_) => {
+                        return Some(UpdateKind::Sticker {
+                            file_id,
+                            file_unique_id,
+                        });
+                    }
+
+                    // Video or VideoNote (round video)
+                    tl::enums::DocumentAttribute::Video(video) => {
+                        if video.round_message {
+                            return Some(UpdateKind::VideoNote {
+                                file_id,
+                                file_unique_id,
+                                duration: video.duration as i32,
+                            });
+                        }
+                        return Some(UpdateKind::Video {
+                            file_id,
+                            file_unique_id,
+                            caption: non_empty(&m.message),
+                        });
+                    }
+
+                    _ => {}
+                }
+            }
+
+            // Generic document (no special attribute matched)
+            let filename = attrs.iter().find_map(|a| {
+                if let tl::enums::DocumentAttribute::Filename(f) = a {
+                    Some(f.file_name.clone())
+                } else {
+                    None
+                }
+            });
+            Some(UpdateKind::Document {
+                file_id,
+                file_unique_id,
+                filename,
+                caption: non_empty(&m.message),
+            })
+        }
+
+        // ── Contact ──
+        tl::enums::MessageMedia::Contact(c) => Some(UpdateKind::ContactReceived {
+            contact: Contact {
+                phone_number: c.phone_number.clone(),
+                first_name: c.first_name.clone(),
+                last_name: if c.last_name.is_empty() {
+                    None
+                } else {
+                    Some(c.last_name.clone())
+                },
+                user_id: if c.user_id == 0 {
+                    None
+                } else {
+                    Some(c.user_id as u64)
+                },
+                vcard: if c.vcard.is_empty() {
+                    None
+                } else {
+                    Some(c.vcard.clone())
+                },
+            },
+        }),
+
+        // ── Location (static geo point) ──
+        tl::enums::MessageMedia::Geo(geo) => {
+            if let tl::enums::GeoPoint::Point(p) = &geo.geo {
+                return Some(UpdateKind::LocationReceived {
+                    latitude: p.lat,
+                    longitude: p.long,
+                });
+            }
+            None
+        }
+
+        // ── Live location ──
+        tl::enums::MessageMedia::GeoLive(geo_live) => {
+            if let tl::enums::GeoPoint::Point(p) = &geo_live.geo {
+                return Some(UpdateKind::LocationReceived {
+                    latitude: p.lat,
+                    longitude: p.long,
+                });
+            }
+            None
+        }
+
+        _ => None,
+    }
+}
+
+// ─── Service message handling (member events, payments) ───
+
+fn convert_service_message(
+    svc: &tl::types::MessageService,
+    chat_id: ChatId,
+    user: UserInfo,
+    message_id: MessageId,
+    peer_ref: PeerRef,
+) -> Option<(IncomingUpdate, PeerRef)> {
+    let kind = match &svc.action {
+        // ── Member joined ──
+        tl::enums::MessageAction::ChatAddUser(_)
+        | tl::enums::MessageAction::ChatJoinedByLink(_)
+        | tl::enums::MessageAction::ChatJoinedByRequest => Some(UpdateKind::ChatMemberJoined),
+
+        // ── Member left ──
+        tl::enums::MessageAction::ChatDeleteUser(_) => Some(UpdateKind::ChatMemberLeft),
+
+        // ── Successful payment (received by the bot) ──
+        tl::enums::MessageAction::PaymentSentMe(p) => {
+            let payload = String::from_utf8(p.payload.clone()).unwrap_or_default();
+            Some(UpdateKind::SuccessfulPayment {
+                currency: p.currency.clone(),
+                total_amount: p.total_amount,
+                payload,
+            })
+        }
+
+        _ => None,
+    }?;
+
+    Some((
+        IncomingUpdate {
+            chat_id,
+            user,
+            message_id: Some(message_id),
+            kind,
+        },
+        peer_ref,
+    ))
+}
+
+// ─── Raw update handling (pre-checkout queries, etc.) ───
+
+async fn convert_raw_update(
+    raw: &grammers_client::update::Raw,
+) -> Option<(IncomingUpdate, PeerRef)> {
+    match &raw.raw {
+        tl::enums::Update::BotPrecheckoutQuery(pq) => {
+            let user_id = UserId(pq.user_id as u64);
+            let payload = String::from_utf8(pq.payload.clone()).unwrap_or_default();
+
+            // Build a dummy PeerRef — pre-checkout queries don't have a chat context,
+            // we use user_id as the chat_id for routing.
+            let chat_id = ChatId(pq.user_id);
+            let peer_ref = PeerRef {
+                id: grammers_session::types::PeerId::user_unchecked(pq.user_id),
+                auth: grammers_session::types::PeerAuth::from_hash(0),
+            };
+
+            Some((
+                IncomingUpdate {
+                    chat_id,
+                    user: UserInfo {
+                        id: user_id,
+                        first_name: String::new(),
+                        last_name: None,
+                        username: None,
+                        language_code: None,
+                    },
+                    message_id: None,
+                    kind: UpdateKind::PreCheckoutQuery {
+                        id: pq.query_id.to_string(),
+                        currency: pq.currency.clone(),
+                        total_amount: pq.total_amount,
+                        payload,
+                    },
+                },
+                peer_ref,
+            ))
+        }
+        _ => None,
+    }
+}
+
+// ─── Helpers ───
 
 pub(crate) fn user_from_peer(peer: &grammers_client::peer::Peer) -> UserInfo {
     use grammers_client::peer::Peer;
@@ -305,4 +496,9 @@ pub(crate) fn user_from_grammers_user(u: &grammers_client::peer::User) -> UserIn
         username: u.username().map(String::from),
         language_code: None, // MTProto doesn't provide lang in updates
     }
+}
+
+/// Return `Some(text)` if the string is non-empty, `None` otherwise.
+fn non_empty(s: &str) -> Option<String> {
+    if s.is_empty() { None } else { Some(s.to_string()) }
 }
