@@ -525,17 +525,23 @@ impl AppBuilder {
                 }
                 Some((chat_id, kind)) = sched_cb_rx.recv() => {
                     if let crate::scheduler::ScheduledKind::Callback(data) = kind {
+                        // Load existing user info from state to avoid overwriting
+                        // with fake scheduler UserInfo.
+                        let user = match serializer.store.load(chat_id).await {
+                            Ok(Some(s)) => s.user,
+                            _ => UserInfo {
+                                id: UserId(0),
+                                first_name: "scheduler".to_string(),
+                                last_name: None,
+                                username: None,
+                                language_code: None,
+                            },
+                        };
                         let rt = runtime.clone();
                         tokio::spawn(async move {
                             let incoming = IncomingUpdate {
                                 chat_id,
-                                user: UserInfo {
-                                    id: UserId(0),
-                                    first_name: "scheduler".to_string(),
-                                    last_name: None,
-                                    username: None,
-                                    language_code: None,
-                                },
+                                user,
                                 message_id: None,
                                 kind: UpdateKind::CallbackQuery {
                                     id: "__scheduled".to_string(),
@@ -864,7 +870,15 @@ async fn handle_form_or_route(
     let conv_id: Option<String> = ctx.get("__conv_id");
     if let Some(conv_id) = conv_id {
         if let Some(conv) = conversations.get(&conv_id) {
-            return run_conversation_step(conv, ctx, update).await;
+            // If the user sent a /command, the conversation clears itself
+            // and returns Ok(()) — fall through to the router below.
+            let was_command = matches!(&update.kind,
+                UpdateKind::Message { text: Some(t) } if t.starts_with('/'));
+            let result = run_conversation_step(conv, ctx, update).await;
+            if !was_command {
+                return result;
+            }
+            // /command cancelled the conversation — fall through to router
         } else {
             ctx.remove("__conv_id");
         }
@@ -874,7 +888,13 @@ async fn handle_form_or_route(
     let form_id: Option<String> = ctx.get("__form_id");
     if let Some(form_id) = form_id {
         if let Some(form) = forms.get(&form_id) {
-            return run_form_step(form, ctx, update).await;
+            // Same logic: /command cancels form, fall through to router.
+            let was_command = matches!(&update.kind,
+                UpdateKind::Message { text: Some(t) } if t.starts_with('/'));
+            let result = run_form_step(form, ctx, update).await;
+            if !was_command {
+                return result;
+            }
         } else {
             ctx.remove("__form_id");
         }

@@ -416,6 +416,11 @@ impl Ctx {
             *tracked = TrackedMessage::from_content(msg_id, &msg.content);
         }
 
+        // Update current screen if the screen has a non-empty ID
+        if !screen.id.0.is_empty() {
+            self.state.current_screen = screen.id;
+        }
+
         Ok(())
     }
 

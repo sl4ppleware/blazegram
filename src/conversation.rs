@@ -198,6 +198,8 @@ impl ConversationBuilder {
         for (name, next) in self.overrides {
             if let Some(&idx) = self.step_index.get(&name) {
                 self.steps[idx].next = next;
+            } else {
+                return Err("branch/goto/end_at references unknown step");
             }
         }
 
@@ -226,7 +228,16 @@ impl Conversation {
             }
             StepNext::Branch(f) => {
                 let target = f(data);
-                self.step_index.get(&target).copied()
+                let idx = self.step_index.get(&target).copied();
+                if idx.is_none() {
+                    tracing::warn!(
+                        conv_id = %self.id,
+                        step = %step.name,
+                        target = %target,
+                        "branch returned unknown step name — ending conversation"
+                    );
+                }
+                idx
             }
             StepNext::Goto(target) => self.step_index.get(target).copied(),
             StepNext::End => None,
@@ -353,5 +364,35 @@ mod tests {
             .unwrap();
 
         assert!(conv.on_cancel.is_some());
+    }
+
+    #[test]
+    fn build_fails_on_unknown_branch_target() {
+        let result = Conversation::builder("bad")
+            .step("a", |_data, _lang| Screen::text("a", "A").build(), None)
+            .branch("nonexistent", Arc::new(|_| "a".into()))
+            .on_complete(Arc::new(|_ctx, _data| Box::pin(async { Ok(()) })))
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_fails_on_unknown_goto_target() {
+        let result = Conversation::builder("bad")
+            .step("a", |_data, _lang| Screen::text("a", "A").build(), None)
+            .goto("typo", "a")
+            .on_complete(Arc::new(|_ctx, _data| Box::pin(async { Ok(()) })))
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_fails_on_unknown_end_at_target() {
+        let result = Conversation::builder("bad")
+            .step("a", |_data, _lang| Screen::text("a", "A").build(), None)
+            .end_at("nope")
+            .on_complete(Arc::new(|_ctx, _data| Box::pin(async { Ok(()) })))
+            .build();
+        assert!(result.is_err());
     }
 }
