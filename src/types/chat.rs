@@ -102,6 +102,7 @@ pub struct UserInfo {
 
 impl UserInfo {
     /// Returns `"First Last"` or just `"First"` if no last name is set.
+    #[must_use]
     pub fn full_name(&self) -> String {
         match &self.last_name {
             Some(last) => format!("{} {}", self.first_name, last),
@@ -228,7 +229,7 @@ impl ChatState {
 // ─── Ctx Mode ───
 
 /// How the Ctx operates — determined automatically from the update source.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum CtxMode {
     /// Private chat — full differ (delete/edit/send).
     #[default]

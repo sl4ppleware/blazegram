@@ -3,6 +3,7 @@
 use grammers_client::tl;
 
 use super::GrammersAdapter;
+use super::helpers::{all_banned_rights, permissions_to_banned_rights};
 use crate::error::ApiError;
 use crate::types::*;
 
@@ -13,40 +14,12 @@ impl GrammersAdapter {
         user_id: UserId,
     ) -> Result<(), ApiError> {
         let peer = self.resolve(chat_id)?;
-        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
-        let input_peer_user: tl::enums::InputPeer = tl::types::InputPeerUser {
-            user_id: user_peer.id.bare_id(),
-            access_hash: user_peer.auth.hash(),
-        }
-        .into();
+        let input_peer_user = self.resolve_user_peer(user_id)?;
         self.client
             .invoke(&tl::functions::channels::EditBanned {
                 channel: peer.into(),
                 participant: input_peer_user,
-                banned_rights: tl::types::ChatBannedRights {
-                    view_messages: true,
-                    send_messages: true,
-                    send_media: true,
-                    send_stickers: true,
-                    send_gifs: true,
-                    send_games: true,
-                    send_inline: true,
-                    embed_links: true,
-                    send_polls: true,
-                    change_info: true,
-                    invite_users: true,
-                    pin_messages: true,
-                    manage_topics: true,
-                    send_photos: true,
-                    send_videos: true,
-                    send_roundvideos: true,
-                    send_audios: true,
-                    send_voices: true,
-                    send_docs: true,
-                    send_plain: true,
-                    until_date: 0,
-                }
-                .into(),
+                banned_rights: all_banned_rights(true).into(),
             })
             .await
             .map_err(Self::convert_error)?;
@@ -59,40 +32,12 @@ impl GrammersAdapter {
         user_id: UserId,
     ) -> Result<(), ApiError> {
         let peer = self.resolve(chat_id)?;
-        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
-        let input_peer_user: tl::enums::InputPeer = tl::types::InputPeerUser {
-            user_id: user_peer.id.bare_id(),
-            access_hash: user_peer.auth.hash(),
-        }
-        .into();
+        let input_peer_user = self.resolve_user_peer(user_id)?;
         self.client
             .invoke(&tl::functions::channels::EditBanned {
                 channel: peer.into(),
                 participant: input_peer_user,
-                banned_rights: tl::types::ChatBannedRights {
-                    view_messages: false,
-                    send_messages: false,
-                    send_media: false,
-                    send_stickers: false,
-                    send_gifs: false,
-                    send_games: false,
-                    send_inline: false,
-                    embed_links: false,
-                    send_polls: false,
-                    change_info: false,
-                    invite_users: false,
-                    pin_messages: false,
-                    manage_topics: false,
-                    send_photos: false,
-                    send_videos: false,
-                    send_roundvideos: false,
-                    send_audios: false,
-                    send_voices: false,
-                    send_docs: false,
-                    send_plain: false,
-                    until_date: 0,
-                }
-                .into(),
+                banned_rights: all_banned_rights(false).into(),
             })
             .await
             .map_err(Self::convert_error)?;
@@ -515,53 +460,13 @@ impl GrammersAdapter {
         permissions: &ChatPermissions,
     ) -> Result<(), ApiError> {
         let peer = self.resolve(chat_id)?;
-        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
-        let input_peer_user: tl::enums::InputPeer = tl::types::InputPeerUser {
-            user_id: user_peer.id.bare_id(),
-            access_hash: user_peer.auth.hash(),
-        }
-        .into();
-
-        // In ChatBannedRights, `true` means BANNED (i.e. the right is taken away).
-        // In our ChatPermissions, `true` means ALLOWED.
-        // So we invert: banned = !allowed.
-        let no_send = !permissions.can_send_messages.unwrap_or(true);
-        let no_media = !permissions.can_send_media_messages.unwrap_or(true);
-        let no_polls = !permissions.can_send_polls.unwrap_or(true);
-        let no_other = !permissions.can_send_other_messages.unwrap_or(true);
-        let no_links = !permissions.can_add_web_page_previews.unwrap_or(true);
-        let no_info = !permissions.can_change_info.unwrap_or(true);
-        let no_invite = !permissions.can_invite_users.unwrap_or(true);
-        let no_pin = !permissions.can_pin_messages.unwrap_or(true);
+        let input_peer_user = self.resolve_user_peer(user_id)?;
 
         self.client
             .invoke(&tl::functions::channels::EditBanned {
                 channel: peer.into(),
                 participant: input_peer_user,
-                banned_rights: tl::types::ChatBannedRights {
-                    view_messages: false,
-                    send_messages: no_send,
-                    send_media: no_media,
-                    send_stickers: no_other,
-                    send_gifs: no_other,
-                    send_games: no_other,
-                    send_inline: no_other,
-                    embed_links: no_links,
-                    send_polls: no_polls,
-                    change_info: no_info,
-                    invite_users: no_invite,
-                    pin_messages: no_pin,
-                    manage_topics: no_pin,
-                    send_photos: no_media,
-                    send_videos: no_media,
-                    send_roundvideos: no_media,
-                    send_audios: no_media,
-                    send_voices: no_media,
-                    send_docs: no_media,
-                    send_plain: no_send,
-                    until_date: 0,
-                }
-                .into(),
+                banned_rights: permissions_to_banned_rights(permissions, true, true).into(),
             })
             .await
             .map_err(Self::convert_error)?;
@@ -575,12 +480,7 @@ impl GrammersAdapter {
         permissions: &ChatPermissions,
     ) -> Result<(), ApiError> {
         let peer = self.resolve(chat_id)?;
-        let user_peer = self.resolve(ChatId(user_id.0 as i64))?;
-        let input_user: tl::enums::InputUser = tl::types::InputUser {
-            user_id: user_peer.id.bare_id(),
-            access_hash: user_peer.auth.hash(),
-        }
-        .into();
+        let input_user = self.resolve_input_user(user_id)?;
 
         self.client
             .invoke(&tl::functions::channels::EditAdmin {
@@ -746,29 +646,7 @@ impl GrammersAdapter {
         permissions: &ChatPermissions,
     ) -> Result<(), ApiError> {
         let peer = self.resolve(chat_id)?;
-        let banned_rights = tl::types::ChatBannedRights {
-            view_messages: false,
-            send_messages: !permissions.can_send_messages.unwrap_or(true),
-            send_media: !permissions.can_send_media_messages.unwrap_or(true),
-            send_stickers: !permissions.can_send_other_messages.unwrap_or(true),
-            send_gifs: !permissions.can_send_other_messages.unwrap_or(true),
-            send_games: !permissions.can_send_other_messages.unwrap_or(true),
-            send_inline: !permissions.can_send_other_messages.unwrap_or(true),
-            embed_links: !permissions.can_add_web_page_previews.unwrap_or(true),
-            send_polls: !permissions.can_send_polls.unwrap_or(true),
-            change_info: !permissions.can_change_info.unwrap_or(true),
-            invite_users: !permissions.can_invite_users.unwrap_or(true),
-            pin_messages: !permissions.can_pin_messages.unwrap_or(true),
-            manage_topics: false,
-            send_photos: !permissions.can_send_media_messages.unwrap_or(true),
-            send_videos: !permissions.can_send_media_messages.unwrap_or(true),
-            send_roundvideos: !permissions.can_send_media_messages.unwrap_or(true),
-            send_audios: !permissions.can_send_media_messages.unwrap_or(true),
-            send_voices: !permissions.can_send_media_messages.unwrap_or(true),
-            send_docs: !permissions.can_send_media_messages.unwrap_or(true),
-            send_plain: !permissions.can_send_messages.unwrap_or(true),
-            until_date: 0,
-        };
+        let banned_rights = permissions_to_banned_rights(permissions, true, false);
         let input_peer: tl::enums::InputPeer = if chat_id.0 < 0 {
             tl::types::InputPeerChannel {
                 channel_id: peer.id.bare_id(),

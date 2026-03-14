@@ -43,12 +43,14 @@ impl InMemoryStore {
         }
     }
 
-    /// Len.
+    /// Returns the number of stored chat states.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.states.len()
     }
 
-    /// Is empty.
+    /// Returns `true` if no chat states are stored.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.states.is_empty()
     }

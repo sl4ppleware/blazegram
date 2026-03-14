@@ -8,7 +8,7 @@ use super::content::{FileSource, ParseMode};
 /// Configuration for sending a native Telegram poll.
 ///
 /// Build one and pass to [`BotApi::send_poll`](crate::bot_api::BotApi::send_poll).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendPoll {
     /// The poll question (1–300 characters).
     pub question: String,
@@ -29,7 +29,7 @@ pub struct SendPoll {
 }
 
 /// Whether a poll is a regular vote or a quiz with one correct answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PollType {
     /// Regular poll — users pick one or more options.
     Regular,
@@ -55,7 +55,7 @@ impl Default for SendPoll {
 // ─── Dice ───
 
 /// Dice emoji type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum DiceEmoji {
     /// 🎲 standard die (values 1–6).
     #[default]
@@ -276,7 +276,7 @@ pub struct Invoice {
 ///
 /// Send a `Vec<MediaGroupItem>` via
 /// [`BotApi::send_media_group`](crate::bot_api::BotApi::send_media_group).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MediaGroupItem {
     /// A photo in the album.
     Photo {
@@ -323,7 +323,7 @@ pub enum MediaGroupItem {
 // ─── Downloaded File ───
 
 /// Raw bytes of a file downloaded from Telegram servers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadedFile {
     /// The file's raw bytes.
     pub data: Vec<u8>,

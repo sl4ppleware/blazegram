@@ -310,7 +310,9 @@ impl AppBuilder {
 
     /// Locales.
     pub fn locales(self, dir: &str, default_lang: &str) -> Self {
-        let i = I18n::load(dir, default_lang).expect("failed to load locales");
+        let i = I18n::load(dir, default_lang).unwrap_or_else(|e| {
+            panic!("AppBuilder::locales(): failed to load locales from {dir:?}: {e}")
+        });
         i18n::set_i18n(i);
         self
     }
@@ -318,14 +320,18 @@ impl AppBuilder {
     /// Use Redis as the state backend. Requires the `redis` feature.
     #[cfg(feature = "redis")]
     pub fn redis_store(self, url: &str) -> Self {
-        let store = crate::redis_store::RedisStore::new(url).expect("failed to connect to Redis");
+        let store = crate::redis_store::RedisStore::new(url).unwrap_or_else(|e| {
+            panic!("AppBuilder::redis_store(): failed to connect to Redis at {url:?}: {e}")
+        });
         self.store(store)
     }
 
     /// Use redb (pure Rust, ACID) as the persistent state backend.
     #[cfg(feature = "redb")]
     pub fn redb_store(self, path: &str) -> Self {
-        let store = crate::redb_store::RedbStore::open(path).expect("failed to open redb store");
+        let store = crate::redb_store::RedbStore::open(path).unwrap_or_else(|e| {
+            panic!("AppBuilder::redb_store(): failed to open redb store at {path:?}: {e}")
+        });
         self.store(store)
     }
 
@@ -394,12 +400,19 @@ impl AppBuilder {
         let pool_task = tokio::spawn(runner.run());
 
         // ── Bot sign-in ──
-        if !client.is_authorized().await.expect("auth check failed") {
+        let is_authorized = match client.is_authorized().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "Authorization check failed, aborting");
+                return;
+            }
+        };
+        if !is_authorized {
             tracing::info!("Signing in as bot...");
-            client
-                .bot_sign_in(&self.token, &self.api_hash)
-                .await
-                .expect("bot sign-in failed");
+            if let Err(e) = client.bot_sign_in(&self.token, &self.api_hash).await {
+                tracing::error!(error = %e, "Bot sign-in failed, aborting");
+                return;
+            }
             tracing::info!("Signed in successfully.");
         } else {
             tracing::info!("Already authorized (session restored).");
@@ -564,7 +577,8 @@ async fn handle_inline_fast(
     router: Arc<Router>,
 ) {
     let user = incoming.user().clone();
-    let dummy_state = ChatState::new(ChatId(user.id.0 as i64), user.clone());
+    let chat_id = ChatId(user.id.0 as i64);
+    let dummy_state = ChatState::new(chat_id, user);
     let mut ctx = Ctx::new(dummy_state, bot_api.clone(), None);
 
     match &incoming.kind {

@@ -21,48 +21,31 @@ async fn main() {
                 ).await
             }),
         )
-        .command(
-            "ping",
-            handler!(ctx => {
-                let t0 = Instant::now();
-                let sent = ctx.send_text("Pong!").await?;
-                let ms = t0.elapsed().as_millis();
-                ctx.bot().edit_message_text(
-                    ctx.chat_id, sent.message_id,
-                    format!("Pong! <code>{ms}ms</code>"),
-                    ParseMode::Html,
-                    Some(InlineKeyboard {
-                        rows: vec![vec![InlineButton {
-                            text: "Ping again".into(),
-                            action: ButtonAction::Callback("ping_again".into()),
-                        }]],
-                    }),
-                    false,
-                ).await.ok();
-                Ok(())
-            }),
-        )
-        .callback(
-            "ping_again",
-            handler!(ctx => {
-                let t0 = Instant::now();
-                let sent = ctx.send_text("Pong!").await?;
-                let ms = t0.elapsed().as_millis();
-                ctx.bot().edit_message_text(
-                    ctx.chat_id, sent.message_id,
-                    format!("Pong! <code>{ms}ms</code>"),
-                    ParseMode::Html,
-                    Some(InlineKeyboard {
-                        rows: vec![vec![InlineButton {
-                            text: "Ping again".into(),
-                            action: ButtonAction::Callback("ping_again".into()),
-                        }]],
-                    }),
-                    false,
-                ).await.ok();
-                Ok(())
-            }),
-        )
+        .command("ping", handler!(ctx => ping_handler(ctx).await))
+        .callback("ping_again", handler!(ctx => ping_handler(ctx).await))
         .run()
         .await;
+}
+
+async fn ping_handler(ctx: &mut Ctx) -> Result<(), HandlerError> {
+    let t0 = Instant::now();
+    let sent = ctx.send_text("Pong!").await?;
+    let ms = t0.elapsed().as_millis();
+    ctx.bot()
+        .edit_message_text(
+            ctx.chat_id,
+            sent.message_id,
+            format!("Pong! <code>{ms}ms</code>"),
+            ParseMode::Html,
+            Some(InlineKeyboard {
+                rows: vec![vec![InlineButton {
+                    text: "Ping again".into(),
+                    action: ButtonAction::Callback("ping_again".into()),
+                }]],
+            }),
+            false,
+        )
+        .await
+        .ok();
+    Ok(())
 }

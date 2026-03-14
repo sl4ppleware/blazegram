@@ -206,3 +206,75 @@ impl Middleware for Arc<AnalyticsMiddleware> {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_user(id: u64) -> UserInfo {
+        UserInfo {
+            id: UserId(id),
+            first_name: "Test".into(),
+            last_name: None,
+            username: None,
+            language_code: None,
+        }
+    }
+
+    fn test_update(chat_id: i64) -> IncomingUpdate {
+        IncomingUpdate {
+            chat_id: ChatId(chat_id),
+            user: test_user(chat_id as u64),
+            message_id: None,
+            kind: UpdateKind::Message {
+                text: Some("hello".into()),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_allows_authorized_user() {
+        let auth = AuthMiddleware::new(vec![123]);
+        let user = test_user(123);
+        let update = test_update(123);
+        assert!(auth.before(ChatId(123), &user, &update).await);
+    }
+
+    #[tokio::test]
+    async fn auth_blocks_unauthorized_user() {
+        let auth = AuthMiddleware::new(vec![999]);
+        let user = test_user(123);
+        let update = test_update(123);
+        assert!(!auth.before(ChatId(123), &user, &update).await);
+    }
+
+    #[tokio::test]
+    async fn throttle_allows_first_request() {
+        let throttle = ThrottleMiddleware::new(10);
+        let user = test_user(123);
+        let update = test_update(123);
+        assert!(throttle.before(ChatId(123), &user, &update).await);
+    }
+
+    #[tokio::test]
+    async fn throttle_blocks_excess_requests() {
+        let throttle = ThrottleMiddleware::new(2);
+        let user = test_user(123);
+        let update = test_update(123);
+        assert!(throttle.before(ChatId(123), &user, &update).await);
+        assert!(throttle.before(ChatId(123), &user, &update).await);
+        assert!(!throttle.before(ChatId(123), &user, &update).await);
+    }
+
+    #[tokio::test]
+    async fn analytics_counts() {
+        let analytics = AnalyticsMiddleware::new();
+        let user = test_user(123);
+        let update = test_update(123);
+        analytics.before(ChatId(123), &user, &update).await;
+        analytics.before(ChatId(456), &test_user(456), &test_update(456)).await;
+        let stats = analytics.stats();
+        assert_eq!(stats.0, 2); // total_updates
+        assert_eq!(stats.1, 2); // total_messages
+    }
+}

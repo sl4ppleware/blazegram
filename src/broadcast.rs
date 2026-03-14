@@ -14,7 +14,7 @@ use crate::types::*;
 /// Result of a broadcast operation.
 #[derive(Debug, Clone, Default)]
 pub struct BroadcastResult {
-    /// Sent.
+    /// Number of messages successfully delivered.
     pub sent: u32,
     /// Number of chats that blocked the bot.
     pub blocked: u32,
@@ -46,13 +46,13 @@ impl Default for BroadcastOptions {
 }
 
 impl BroadcastOptions {
-    /// Hideable.
+    /// If `true`, the message can be hidden by the user.
     pub fn hideable(mut self) -> Self {
         self.hideable = true;
         self
     }
 
-    /// Delay.
+    /// Per-message delay to stay within rate limits.
     pub fn delay(mut self, d: Duration) -> Self {
         self.delay = d;
         self
@@ -171,5 +171,72 @@ fn add_dismiss_button(content: MessageContent, text: &str, callback: &str) -> Me
             }
         }
         other => other, // sticker, location etc — no keyboard support
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ParseMode, LinkPreview};
+
+    #[test]
+    fn add_dismiss_to_text() {
+        let content = MessageContent::Text {
+            text: "Hello".into(),
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            link_preview: LinkPreview::Disabled,
+        };
+        let result = add_dismiss_button(content, "Dismiss", "__dismiss");
+        if let MessageContent::Text { keyboard, .. } = &result {
+            let kb = keyboard.as_ref().unwrap();
+            assert_eq!(kb.rows.len(), 1);
+            assert_eq!(kb.rows[0][0].text, "Dismiss");
+        } else {
+            panic!("Expected Text content");
+        }
+    }
+
+    #[test]
+    fn add_dismiss_preserves_existing_keyboard() {
+        let existing_kb = InlineKeyboard {
+            rows: vec![vec![crate::keyboard::InlineButton {
+                text: "Existing".into(),
+                action: crate::keyboard::ButtonAction::Callback("existing".into()),
+            }]],
+        };
+        let content = MessageContent::Text {
+            text: "Hello".into(),
+            parse_mode: ParseMode::Html,
+            keyboard: Some(existing_kb),
+            link_preview: LinkPreview::Disabled,
+        };
+        let result = add_dismiss_button(content, "Dismiss", "__dismiss");
+        if let MessageContent::Text { keyboard, .. } = &result {
+            let kb = keyboard.as_ref().unwrap();
+            assert_eq!(kb.rows.len(), 2);
+            assert_eq!(kb.rows[0][0].text, "Existing");
+            assert_eq!(kb.rows[1][0].text, "Dismiss");
+        } else {
+            panic!("Expected Text content");
+        }
+    }
+
+    #[test]
+    fn broadcast_options_default() {
+        let opts = BroadcastOptions::default();
+        assert!(!opts.hideable);
+        assert_eq!(opts.delay, Duration::from_millis(35));
+    }
+
+    #[test]
+    fn broadcast_options_builder() {
+        let opts = BroadcastOptions::default()
+            .hideable()
+            .delay(Duration::from_millis(100))
+            .dismiss_text("Hide");
+        assert!(opts.hideable);
+        assert_eq!(opts.delay, Duration::from_millis(100));
+        assert_eq!(opts.dismiss_text, "Hide");
     }
 }

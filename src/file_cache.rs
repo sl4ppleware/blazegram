@@ -50,6 +50,7 @@ impl FileIdCache {
     /// Look up a cached file‑id for `source`.
     ///
     /// Returns `Some(FileSource::FileId(…))` on a cache hit, or `None`.
+    #[must_use]
     pub fn get(&self, source: &FileSource) -> Option<FileSource> {
         // FileId sources are already lightweight — no need to cache-redirect
         if matches!(source, FileSource::FileId(_)) {
@@ -74,11 +75,13 @@ impl FileIdCache {
     }
 
     /// Number of entries in the cache.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.cache.len()
     }
 
     /// Whether the cache is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
     }

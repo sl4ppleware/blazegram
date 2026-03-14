@@ -225,3 +225,117 @@ impl Default for KeyboardBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_button_and_row() {
+        let kb = KeyboardBuilder::new()
+            .button("Click", "action:click")
+            .row()
+            .button("Back", "nav:back")
+            .build();
+        assert_eq!(kb.rows.len(), 2);
+        assert_eq!(kb.rows[0].len(), 1);
+        assert_eq!(kb.rows[0][0].text, "Click");
+        assert_eq!(kb.rows[1][0].text, "Back");
+    }
+
+    #[test]
+    fn builder_grid() {
+        let items = vec![("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")];
+        let kb = KeyboardBuilder::new()
+            .grid(items, 2, |(t, d)| (t.to_string(), d.to_string()))
+            .build();
+        assert_eq!(kb.rows.len(), 3); // [a,b], [c,d], [e]
+        assert_eq!(kb.rows[0].len(), 2);
+        assert_eq!(kb.rows[2].len(), 1);
+    }
+
+    #[test]
+    fn builder_url_button() {
+        let kb = KeyboardBuilder::new()
+            .url("Google", "https://google.com")
+            .build();
+        assert_eq!(kb.rows[0][0].text, "Google");
+        assert!(matches!(&kb.rows[0][0].action, ButtonAction::Url(u) if u == "https://google.com"));
+    }
+
+    #[test]
+    fn builder_webapp_button() {
+        let kb = KeyboardBuilder::new()
+            .webapp("App", "https://app.example.com")
+            .build();
+        assert!(matches!(&kb.rows[0][0].action, ButtonAction::WebApp(u) if u == "https://app.example.com"));
+    }
+
+    #[test]
+    fn empty_builder_builds_empty() {
+        let kb = KeyboardBuilder::new().build();
+        assert!(kb.rows.is_empty());
+    }
+
+    #[test]
+    fn button_row_creates_single_button_row() {
+        let kb = KeyboardBuilder::new()
+            .button_row("Solo", "solo_data")
+            .button_row("Another", "another_data")
+            .build();
+        assert_eq!(kb.rows.len(), 2);
+        assert_eq!(kb.rows[0].len(), 1);
+        assert_eq!(kb.rows[0][0].text, "Solo");
+    }
+
+    #[test]
+    fn confirm_cancel_row() {
+        let kb = KeyboardBuilder::new()
+            .confirm_cancel("Yes", "confirm", "No", "cancel")
+            .build();
+        assert_eq!(kb.rows.len(), 1);
+        assert_eq!(kb.rows[0].len(), 2);
+        assert_eq!(kb.rows[0][0].text, "Yes");
+        assert_eq!(kb.rows[0][1].text, "No");
+    }
+
+    #[test]
+    fn switch_inline_button() {
+        let kb = KeyboardBuilder::new()
+            .switch_inline("Search", "query")
+            .build();
+        assert!(matches!(
+            &kb.rows[0][0].action,
+            ButtonAction::SwitchInline { query, current_chat: false } if query == "query"
+        ));
+    }
+
+    #[test]
+    fn switch_inline_current_button() {
+        let kb = KeyboardBuilder::new()
+            .switch_inline_current("Here", "inline")
+            .build();
+        assert!(matches!(
+            &kb.rows[0][0].action,
+            ButtonAction::SwitchInline { current_chat: true, .. }
+        ));
+    }
+
+    #[test]
+    fn pagination_single_page_no_buttons() {
+        let kb = KeyboardBuilder::new()
+            .pagination(0, 1, "page")
+            .build();
+        assert!(kb.rows.is_empty());
+    }
+
+    #[test]
+    fn pagination_multi_page() {
+        let kb = KeyboardBuilder::new()
+            .pagination(0, 3, "page")
+            .build();
+        // First page: [1/3] [>]
+        assert_eq!(kb.rows.len(), 1);
+        assert_eq!(kb.rows[0].len(), 2); // counter + next
+    }
+}

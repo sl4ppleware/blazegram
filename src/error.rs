@@ -74,12 +74,14 @@ pub type HandlerResult = Result<(), HandlerError>;
 
 impl ApiError {
     /// Whether the error is transient and the operation could succeed on retry.
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         matches!(self, Self::TooManyRequests { .. } | Self::Network(_))
     }
 
     /// Whether the error means we should stop trying to contact this chat entirely
     /// (user blocked the bot, account deleted, etc).
+    #[must_use]
     pub fn is_fatal_for_chat(&self) -> bool {
         matches!(self, Self::BotBlocked | Self::ChatNotFound)
     }
@@ -87,6 +89,7 @@ impl ApiError {
 
 impl HandlerError {
     /// Whether the inner error is a chat-fatal condition (blocked, deleted, etc).
+    #[must_use]
     pub fn is_fatal_for_chat(&self) -> bool {
         matches!(self, Self::Api(e) if e.is_fatal_for_chat())
     }

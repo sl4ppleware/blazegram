@@ -44,6 +44,7 @@ pub enum ContentType {
 
 impl ContentType {
     /// Can we edit from self → target without delete+send?
+    #[must_use]
     pub fn can_edit_to(&self, target: &ContentType) -> bool {
         use ContentType::*;
         match (self, target) {

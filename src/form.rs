@@ -280,13 +280,17 @@ impl FormBuilder {
     }
 
     /// Consume the builder and produce a [`Form`].
-    pub fn build(self) -> Form {
-        Form {
+    ///
+    /// Returns `Err` if `.on_complete()` was not set.
+    pub fn build(self) -> Result<Form, &'static str> {
+        Ok(Form {
             id: self.id,
             steps: self.steps,
-            on_complete: self.on_complete.expect("on_complete is required"),
+            on_complete: self
+                .on_complete
+                .ok_or("Form::build(): .on_complete() handler is required")?,
             on_cancel: self.on_cancel,
-        }
+        })
     }
 }
 
@@ -374,7 +378,7 @@ impl FormStepTextBuilder {
     }
 
     /// Consume the builder and produce a [`Form`].
-    pub fn build(self) -> Form {
+    pub fn build(self) -> Result<Form, &'static str> {
         self.done().build()
     }
 }
@@ -441,7 +445,7 @@ impl FormStepIntBuilder {
     }
 
     /// Consume the builder and produce a [`Form`].
-    pub fn build(self) -> Form {
+    pub fn build(self) -> Result<Form, &'static str> {
         self.done().build()
     }
 }
@@ -476,7 +480,8 @@ mod tests {
             .text_step("name", "name", "What is your name?")
             .done()
             .on_complete(dummy_handler())
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(form.id, "reg");
         assert_eq!(form.steps.len(), 1);
         assert_eq!(form.steps[0].id, "name");
@@ -490,7 +495,8 @@ mod tests {
             .text_step("q2", "answer2", "Question 2?")
             .done()
             .on_complete(dummy_handler())
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(form.steps.len(), 2);
     }
 
@@ -502,7 +508,8 @@ mod tests {
             .max(150)
             .done()
             .on_complete(dummy_handler())
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(form.steps.len(), 1);
         assert!(matches!(form.steps[0].parser, FieldParser::Integer { .. }));
     }
@@ -517,7 +524,8 @@ mod tests {
                 vec![("Red", "red"), ("Blue", "blue")],
             )
             .on_complete(dummy_handler())
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(form.steps.len(), 1);
         assert!(matches!(form.steps[0].parser, FieldParser::Choice { .. }));
     }
@@ -574,7 +582,8 @@ mod tests {
             .done()
             .on_cancel(dummy_cancel())
             .on_complete(dummy_handler())
-            .build();
+            .build()
+            .unwrap();
         assert!(form.on_cancel.is_some());
     }
 }

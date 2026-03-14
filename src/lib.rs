@@ -3,6 +3,12 @@
 #![warn(missing_docs)]
 #![allow(clippy::too_many_arguments)]
 
+// ─── Macros (must come first — macro_rules! are order-dependent) ───
+
+/// Ergonomic handler macros (`handler!`, `form_handler!`) and BotApi delegation macros.
+#[macro_use]
+pub mod macros;
+
 // ─── Core types & errors ───
 
 /// Error types for API calls and handler logic.
@@ -82,9 +88,6 @@ pub mod rate_limiter;
 /// Requires the `redb` feature (enabled by default).
 #[cfg(feature = "redb")]
 pub mod redb_store;
-/// Ergonomic handler macros (`handler!`, `form_handler!`).
-#[macro_use]
-pub mod macros;
 
 // ─── Testing ───
 

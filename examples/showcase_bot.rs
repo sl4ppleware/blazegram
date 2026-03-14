@@ -31,7 +31,6 @@ async fn main() {
     // ── Analytics middleware ──
     let analytics = AnalyticsMiddleware::new();
     let analytics_ref = analytics.clone();
-    let analytics_ref2 = analytics.clone();
 
     // ── Form ──
     let feedback_form = Form::builder("feedback")
@@ -81,7 +80,8 @@ async fn main() {
         .on_cancel(handler!(ctx => {
             ctx.navigate(main_menu(ctx)).await
         }))
-        .build();
+        .build()
+        .unwrap();
 
     // ── App ──
     App::builder(&token)
@@ -112,16 +112,9 @@ async fn main() {
                     .build()
             ).await
         }))
-        .command("stats", move |ctx| {
+        .command("stats", {
             let a = analytics_ref.clone();
-            Box::pin(async move {
-                let (total, msgs, cbs, users) = a.stats();
-                let m = metrics();
-                ctx.navigate(Screen::text("stats", format!(
-                    "<b>Analytics</b>\n\nUpdates: {}\nMessages: {}\nCallbacks: {}\nUnique users: {}\n\n<b>Metrics</b>\n<pre>{}</pre>",
-                    total, msgs, cbs, users, blazegram::markup::escape(&m.summary())
-                )).keyboard(|kb| kb.button_row("Menu", "menu")).build()).await
-            })
+            move |ctx| { let a = a.clone(); Box::pin(async move { stats_handler(ctx, &a).await }) }
         })
         .command("dice", handler!(ctx => {
             ctx.send_dice(DiceEmoji::Dice).await?;
@@ -137,16 +130,9 @@ async fn main() {
         .callback("menu", handler!(ctx => {
             ctx.navigate(main_menu(ctx)).await
         }))
-        .callback("show_stats", move |ctx| {
-            let a = analytics_ref2.clone();
-            Box::pin(async move {
-                let (total, msgs, cbs, users) = a.stats();
-                let m = metrics();
-                ctx.navigate(Screen::text("stats", format!(
-                    "<b>Analytics</b>\n\nUpdates: {}\nMessages: {}\nCallbacks: {}\nUnique users: {}\n\n<b>Metrics</b>\n<pre>{}</pre>",
-                    total, msgs, cbs, users, blazegram::markup::escape(&m.summary())
-                )).keyboard(|kb| kb.button_row("Menu", "menu")).build()).await
-            })
+        .callback("show_stats", {
+            let a = analytics_ref.clone();
+            move |ctx| { let a = a.clone(); Box::pin(async move { stats_handler(ctx, &a).await }) }
         })
 
         // -- Push/Pop navigation stack --
@@ -710,3 +696,20 @@ const HELP_TEXT: &str = "\
 • State snapshots\n\
 • Deep links\n\
 • Typing indicator";
+
+async fn stats_handler(ctx: &mut Ctx, analytics: &AnalyticsMiddleware) -> Result<(), HandlerError> {
+    let (total, msgs, cbs, users) = analytics.stats();
+    let m = metrics();
+    ctx.navigate(
+        Screen::text(
+            "stats",
+            format!(
+                "<b>Analytics</b>\n\nUpdates: {}\nMessages: {}\nCallbacks: {}\nUnique users: {}\n\n<b>Metrics</b>\n<pre>{}</pre>",
+                total, msgs, cbs, users, blazegram::markup::escape(&m.summary())
+            ),
+        )
+        .keyboard(|kb| kb.button_row("Menu", "menu"))
+        .build(),
+    )
+    .await
+}

@@ -1,6 +1,5 @@
 //! Mock BotApi for testing.
 
-use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use tokio::sync::Mutex;
@@ -85,573 +84,335 @@ impl Default for MockBotApi {
     }
 }
 
-#[async_trait]
-impl BotApi for MockBotApi {
-    async fn send_message(
-        &self,
-        chat_id: ChatId,
-        content: MessageContent,
-        _opts: SendOptions,
-    ) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        self.messages.lock().await.push((chat_id, content));
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+impl_mock_botapi! {
+    ok_unit: [
+        fn send_chat_action(chat_id: ChatId, action: ChatAction);
+        fn ban_chat_member(chat_id: ChatId, user_id: UserId);
+        fn unban_chat_member(chat_id: ChatId, user_id: UserId);
+        fn leave_chat(chat_id: ChatId);
+        fn set_my_commands(commands: Vec<BotCommand>);
+        fn delete_my_commands();
+        fn pin_chat_message(chat_id: ChatId, message_id: MessageId, silent: bool);
+        fn unpin_chat_message(chat_id: ChatId, message_id: MessageId);
+        fn set_message_reaction(chat_id: ChatId, message_id: MessageId, emoji: &str);
+        fn answer_pre_checkout_query(id: String, ok: bool, error_message: Option<String>);
+        fn set_chat_title(chat_id: ChatId, title: &str);
+        fn set_chat_description(chat_id: ChatId, description: Option<&str>);
+        fn delete_chat_photo(chat_id: ChatId);
+        fn set_chat_administrator_custom_title(chat_id: ChatId, user_id: UserId, custom_title: &str);
+        fn approve_chat_join_request(chat_id: ChatId, user_id: UserId);
+        fn decline_chat_join_request(chat_id: ChatId, user_id: UserId);
+        fn set_my_description(description: Option<&str>, language_code: Option<&str>);
+        fn set_my_short_description(short_description: Option<&str>, language_code: Option<&str>);
+        fn set_my_name(name: Option<&str>, language_code: Option<&str>);
+        fn set_chat_menu_button(chat_id: Option<ChatId>, menu_button: MenuButton);
+        fn answer_shipping_query(shipping_query_id: String, ok: bool, shipping_options: Option<Vec<ShippingOption>>, error_message: Option<String>);
+        fn answer_inline_query(query_id: String, results: Vec<InlineQueryResult>, next_offset: Option<String>, cache_time: Option<i32>, is_personal: bool);
+        fn edit_forum_topic(chat_id: ChatId, topic_id: i32, title: Option<&str>, icon_custom_emoji_id: Option<i64>, closed: Option<bool>, hidden: Option<bool>);
+        fn delete_forum_topic(chat_id: ChatId, topic_id: i32);
+        fn unpin_all_forum_topic_messages(chat_id: ChatId, topic_id: i32);
+        fn refund_star_payment(user_id: UserId, charge_id: &str);
+        fn restrict_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions);
+        fn promote_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions);
+        fn set_chat_permissions(chat_id: ChatId, permissions: ChatPermissions);
+        fn unpin_all_chat_messages(chat_id: ChatId);
+        fn stop_poll(chat_id: ChatId, message_id: MessageId);
+        fn set_chat_photo(chat_id: ChatId, photo: FileSource);
+    ]
+    ok_sent: [
+        fn send_poll(chat_id: ChatId, poll: SendPoll);
+        fn send_dice(chat_id: ChatId, emoji: DiceEmoji);
+        fn send_contact(chat_id: ChatId, contact: Contact);
+        fn send_venue(chat_id: ChatId, venue: Venue);
+        fn send_invoice(chat_id: ChatId, invoice: Invoice);
+        fn send_sticker(chat_id: ChatId, sticker: FileSource);
+        fn send_location(chat_id: ChatId, latitude: f64, longitude: f64);
+    ]
+    manual: {
+        async fn send_message(
+            &self,
+            chat_id: ChatId,
+            content: MessageContent,
+            _opts: SendOptions,
+        ) -> Result<SentMessage, ApiError> {
+            let id = self.next_id();
+            self.messages.lock().await.push((chat_id, content));
+            Ok(SentMessage {
+                message_id: MessageId(id),
+                chat_id,
+            })
+        }
 
-    async fn edit_message_text(
-        &self,
-        c: ChatId,
-        m: MessageId,
-        text: String,
-        _pm: ParseMode,
-        _kb: Option<InlineKeyboard>,
-        _lp: bool,
-    ) -> Result<(), ApiError> {
-        self.edits.lock().await.push((c, m, text));
-        Ok(())
-    }
+        async fn edit_message_text(
+            &self,
+            c: ChatId,
+            m: MessageId,
+            text: String,
+            _pm: ParseMode,
+            _kb: Option<InlineKeyboard>,
+            _lp: bool,
+        ) -> Result<(), ApiError> {
+            self.edits.lock().await.push((c, m, text));
+            Ok(())
+        }
 
-    async fn edit_message_caption(
-        &self,
-        c: ChatId,
-        m: MessageId,
-        cap: Option<String>,
-        _pm: ParseMode,
-        _kb: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.edits
-            .lock()
-            .await
-            .push((c, m, cap.unwrap_or_default()));
-        Ok(())
-    }
+        async fn edit_message_caption(
+            &self,
+            c: ChatId,
+            m: MessageId,
+            cap: Option<String>,
+            _pm: ParseMode,
+            _kb: Option<InlineKeyboard>,
+        ) -> Result<(), ApiError> {
+            self.edits.lock().await.push((c, m, cap.unwrap_or_default()));
+            Ok(())
+        }
 
-    async fn edit_message_media(
-        &self,
-        c: ChatId,
-        m: MessageId,
-        _content: MessageContent,
-        _kb: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.edits.lock().await.push((c, m, "media".into()));
-        Ok(())
-    }
+        async fn edit_message_media(
+            &self,
+            c: ChatId,
+            m: MessageId,
+            _content: MessageContent,
+            _kb: Option<InlineKeyboard>,
+        ) -> Result<(), ApiError> {
+            self.edits.lock().await.push((c, m, "media".into()));
+            Ok(())
+        }
 
-    async fn edit_message_keyboard(
-        &self,
-        c: ChatId,
-        m: MessageId,
-        _kb: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.edits.lock().await.push((c, m, "keyboard".into()));
-        Ok(())
-    }
+        async fn edit_message_keyboard(
+            &self,
+            c: ChatId,
+            m: MessageId,
+            _kb: Option<InlineKeyboard>,
+        ) -> Result<(), ApiError> {
+            self.edits.lock().await.push((c, m, "keyboard".into()));
+            Ok(())
+        }
 
-    async fn delete_messages(&self, c: ChatId, ids: Vec<MessageId>) -> Result<(), ApiError> {
-        self.deleted.lock().await.push((c, ids));
-        Ok(())
-    }
+        async fn delete_messages(&self, c: ChatId, ids: Vec<MessageId>) -> Result<(), ApiError> {
+            self.deleted.lock().await.push((c, ids));
+            Ok(())
+        }
 
-    async fn answer_callback_query(
-        &self,
-        id: String,
-        text: Option<String>,
-        alert: bool,
-    ) -> Result<(), ApiError> {
-        self.answers.lock().await.push((id, text, alert));
-        Ok(())
-    }
+        async fn answer_callback_query(
+            &self,
+            id: String,
+            text: Option<String>,
+            alert: bool,
+        ) -> Result<(), ApiError> {
+            self.answers.lock().await.push((id, text, alert));
+            Ok(())
+        }
 
-    async fn send_chat_action(&self, _c: ChatId, _a: ChatAction) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn forward_message(
+            &self,
+            chat_id: ChatId,
+            _from_chat_id: ChatId,
+            _message_id: MessageId,
+        ) -> Result<SentMessage, ApiError> {
+            Ok(SentMessage {
+                message_id: MessageId(self.next_id()),
+                chat_id,
+            })
+        }
 
-    async fn answer_inline_query(
-        &self,
-        _query_id: String,
-        _results: Vec<InlineQueryResult>,
-        _next_offset: Option<String>,
-        _cache_time: Option<i32>,
-        _is_personal: bool,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn copy_message(
+            &self,
+            _chat_id: ChatId,
+            _from_chat_id: ChatId,
+            _message_id: MessageId,
+        ) -> Result<MessageId, ApiError> {
+            Ok(MessageId(self.next_id()))
+        }
 
-    async fn forward_message(
-        &self,
-        chat_id: ChatId,
-        _from_chat_id: ChatId,
-        _message_id: MessageId,
-    ) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+        async fn download_file(&self, _file_id: &str) -> Result<DownloadedFile, ApiError> {
+            Ok(DownloadedFile {
+                data: vec![0xFF, 0xD8],
+                file_size: Some(2),
+            })
+        }
 
-    async fn copy_message(
-        &self,
-        _chat_id: ChatId,
-        _from_chat_id: ChatId,
-        _message_id: MessageId,
-    ) -> Result<MessageId, ApiError> {
-        Ok(MessageId(self.next_id()))
-    }
+        async fn get_chat_member_count(&self, _chat_id: ChatId) -> Result<i32, ApiError> {
+            Ok(42)
+        }
 
-    async fn download_file(&self, _file_id: &str) -> Result<DownloadedFile, ApiError> {
-        Ok(DownloadedFile {
-            data: vec![0xFF, 0xD8],
-            file_size: Some(2),
-        })
-    }
+        async fn get_me(&self) -> Result<BotInfo, ApiError> {
+            Ok(BotInfo {
+                id: UserId(0),
+                username: "mock_bot".into(),
+                first_name: "MockBot".into(),
+                can_join_groups: true,
+                can_read_all_group_messages: false,
+                supports_inline_queries: false,
+            })
+        }
 
-    async fn send_poll(&self, chat_id: ChatId, _poll: SendPoll) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+        async fn get_chat_administrators(&self, _chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
+            Ok(vec![])
+        }
 
-    async fn send_dice(&self, chat_id: ChatId, _emoji: DiceEmoji) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+        async fn get_user_profile_photos(
+            &self,
+            _user_id: UserId,
+            _offset: Option<i32>,
+            _limit: Option<i32>,
+        ) -> Result<UserProfilePhotos, ApiError> {
+            Ok(UserProfilePhotos {
+                total_count: 0,
+                photos: vec![],
+            })
+        }
 
-    async fn send_contact(
-        &self,
-        chat_id: ChatId,
-        _contact: Contact,
-    ) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+        async fn get_my_commands(&self) -> Result<Vec<BotCommand>, ApiError> {
+            Ok(vec![])
+        }
 
-    async fn send_venue(&self, chat_id: ChatId, _venue: Venue) -> Result<SentMessage, ApiError> {
-        let id = self.next_id();
-        Ok(SentMessage {
-            message_id: MessageId(id),
-            chat_id,
-        })
-    }
+        async fn get_my_description(&self, _lang: Option<&str>) -> Result<BotDescription, ApiError> {
+            Ok(BotDescription {
+                description: String::new(),
+            })
+        }
 
-    async fn ban_chat_member(&self, _chat_id: ChatId, _user_id: UserId) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn unban_chat_member(&self, _chat_id: ChatId, _user_id: UserId) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn leave_chat(&self, _chat_id: ChatId) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn get_chat_member_count(&self, _chat_id: ChatId) -> Result<i32, ApiError> {
-        Ok(42)
-    }
-    async fn set_my_commands(&self, _commands: Vec<BotCommand>) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn delete_my_commands(&self) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn get_my_short_description(
+            &self,
+            _lang: Option<&str>,
+        ) -> Result<BotShortDescription, ApiError> {
+            Ok(BotShortDescription {
+                short_description: String::new(),
+            })
+        }
 
-    async fn get_me(&self) -> Result<BotInfo, ApiError> {
-        Ok(BotInfo {
-            id: UserId(0),
-            username: "mock_bot".into(),
-            first_name: "MockBot".into(),
-            can_join_groups: true,
-            can_read_all_group_messages: false,
-            supports_inline_queries: false,
-        })
-    }
+        async fn get_my_name(&self, _lang: Option<&str>) -> Result<BotName, ApiError> {
+            Ok(BotName {
+                name: "MockBot".into(),
+            })
+        }
 
-    async fn pin_chat_message(
-        &self,
-        _chat_id: ChatId,
-        _message_id: MessageId,
-        _silent: bool,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn unpin_chat_message(
-        &self,
-        _chat_id: ChatId,
-        _message_id: MessageId,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn set_message_reaction(
-        &self,
-        _chat_id: ChatId,
-        _message_id: MessageId,
-        _emoji: &str,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn get_chat_menu_button(&self, _chat_id: Option<ChatId>) -> Result<MenuButton, ApiError> {
+            Ok(MenuButton::Default)
+        }
 
-    async fn answer_pre_checkout_query(
-        &self,
-        _id: String,
-        _ok: bool,
-        _error_message: Option<String>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn create_invoice_link(&self, _invoice: Invoice) -> Result<String, ApiError> {
+            Ok("https://t.me/$mock_invoice_link".into())
+        }
 
-    async fn set_chat_title(&self, _chat_id: ChatId, _title: &str) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn set_chat_description(
-        &self,
-        _chat_id: ChatId,
-        _description: Option<&str>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn delete_chat_photo(&self, _chat_id: ChatId) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn forward_messages(
+            &self,
+            _chat_id: ChatId,
+            _from: ChatId,
+            ids: Vec<MessageId>,
+        ) -> Result<Vec<MessageId>, ApiError> {
+            Ok(ids.iter().map(|_| MessageId(self.next_id())).collect())
+        }
 
-    async fn get_chat_administrators(&self, _chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
-        Ok(vec![])
-    }
+        async fn copy_messages(
+            &self,
+            _chat_id: ChatId,
+            _from: ChatId,
+            ids: Vec<MessageId>,
+        ) -> Result<Vec<MessageId>, ApiError> {
+            Ok(ids.iter().map(|_| MessageId(self.next_id())).collect())
+        }
 
-    async fn set_chat_administrator_custom_title(
-        &self,
-        _chat_id: ChatId,
-        _user_id: UserId,
-        _title: &str,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn revoke_chat_invite_link(
+            &self,
+            _chat_id: ChatId,
+            link: &str,
+        ) -> Result<ChatInviteLink, ApiError> {
+            Ok(ChatInviteLink {
+                invite_link: link.to_string(),
+                creator: None,
+                creates_join_request: false,
+                is_primary: false,
+                is_revoked: true,
+                name: None,
+                expire_date: None,
+                member_limit: None,
+                pending_join_request_count: None,
+            })
+        }
 
-    async fn approve_chat_join_request(
-        &self,
-        _chat_id: ChatId,
-        _user_id: UserId,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn decline_chat_join_request(
-        &self,
-        _chat_id: ChatId,
-        _user_id: UserId,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
+        async fn create_forum_topic(
+            &self,
+            _chat_id: ChatId,
+            title: &str,
+            icon_color: Option<i32>,
+            icon_custom_emoji_id: Option<i64>,
+        ) -> Result<ForumTopic, ApiError> {
+            Ok(ForumTopic {
+                id: self.next_id(),
+                title: title.to_string(),
+                icon_color,
+                icon_custom_emoji_id: icon_custom_emoji_id.map(|id| id.to_string()),
+                is_closed: false,
+                is_hidden: false,
+            })
+        }
 
-    async fn get_user_profile_photos(
-        &self,
-        _user_id: UserId,
-        _offset: Option<i32>,
-        _limit: Option<i32>,
-    ) -> Result<UserProfilePhotos, ApiError> {
-        Ok(UserProfilePhotos {
-            total_count: 0,
-            photos: vec![],
-        })
-    }
+        async fn get_star_transactions(
+            &self,
+            _offset: Option<&str>,
+            _limit: Option<i32>,
+        ) -> Result<StarTransactions, ApiError> {
+            Ok(StarTransactions {
+                balance: StarBalance {
+                    amount: 1000,
+                    nanos: 0,
+                },
+                transactions: vec![],
+                next_offset: None,
+            })
+        }
 
-    async fn get_my_commands(&self) -> Result<Vec<BotCommand>, ApiError> {
-        Ok(vec![])
-    }
+        async fn send_media_group(
+            &self,
+            _chat_id: ChatId,
+            _media: Vec<MediaGroupItem>,
+        ) -> Result<Vec<SentMessage>, ApiError> {
+            Ok(vec![])
+        }
 
-    async fn set_my_description(
-        &self,
-        _desc: Option<&str>,
-        _lang: Option<&str>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn get_my_description(&self, _lang: Option<&str>) -> Result<BotDescription, ApiError> {
-        Ok(BotDescription {
-            description: String::new(),
-        })
-    }
-    async fn set_my_short_description(
-        &self,
-        _desc: Option<&str>,
-        _lang: Option<&str>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn get_my_short_description(
-        &self,
-        _lang: Option<&str>,
-    ) -> Result<BotShortDescription, ApiError> {
-        Ok(BotShortDescription {
-            short_description: String::new(),
-        })
-    }
-    async fn set_my_name(&self, _name: Option<&str>, _lang: Option<&str>) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn get_my_name(&self, _lang: Option<&str>) -> Result<BotName, ApiError> {
-        Ok(BotName {
-            name: "MockBot".into(),
-        })
-    }
+        async fn get_chat_member(
+            &self,
+            _chat_id: ChatId,
+            user_id: UserId,
+        ) -> Result<ChatMember, ApiError> {
+            Ok(ChatMember {
+                user: UserInfo {
+                    id: user_id,
+                    first_name: "Mock".to_string(),
+                    last_name: None,
+                    username: None,
+                    language_code: None,
+                },
+                status: ChatMemberStatus::Member,
+            })
+        }
 
-    async fn set_chat_menu_button(
-        &self,
-        _chat_id: Option<ChatId>,
-        _button: MenuButton,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-    async fn get_chat_menu_button(&self, _chat_id: Option<ChatId>) -> Result<MenuButton, ApiError> {
-        Ok(MenuButton::Default)
-    }
-
-    async fn answer_shipping_query(
-        &self,
-        _id: String,
-        _ok: bool,
-        _opts: Option<Vec<ShippingOption>>,
-        _err: Option<String>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn create_invoice_link(&self, _invoice: Invoice) -> Result<String, ApiError> {
-        Ok("https://t.me/$mock_invoice_link".into())
-    }
-
-    async fn forward_messages(
-        &self,
-        _chat_id: ChatId,
-        _from: ChatId,
-        ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        Ok(ids.iter().map(|_| MessageId(self.next_id())).collect())
-    }
-
-    async fn copy_messages(
-        &self,
-        _chat_id: ChatId,
-        _from: ChatId,
-        ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        Ok(ids.iter().map(|_| MessageId(self.next_id())).collect())
-    }
-
-    async fn send_sticker(
-        &self,
-        chat_id: ChatId,
-        _sticker: FileSource,
-    ) -> Result<SentMessage, ApiError> {
-        Ok(SentMessage {
-            message_id: MessageId(self.next_id()),
-            chat_id,
-        })
-    }
-
-    async fn send_location(
-        &self,
-        chat_id: ChatId,
-        _lat: f64,
-        _lon: f64,
-    ) -> Result<SentMessage, ApiError> {
-        Ok(SentMessage {
-            message_id: MessageId(self.next_id()),
-            chat_id,
-        })
-    }
-
-    async fn revoke_chat_invite_link(
-        &self,
-        _chat_id: ChatId,
-        link: &str,
-    ) -> Result<ChatInviteLink, ApiError> {
-        Ok(ChatInviteLink {
-            invite_link: link.to_string(),
-            creator: None,
-            creates_join_request: false,
-            is_primary: false,
-            is_revoked: true,
-            name: None,
-            expire_date: None,
-            member_limit: None,
-            pending_join_request_count: None,
-        })
-    }
-
-    // Forum Topics
-
-    async fn create_forum_topic(
-        &self,
-        _chat_id: ChatId,
-        title: &str,
-        icon_color: Option<i32>,
-        icon_custom_emoji_id: Option<i64>,
-    ) -> Result<ForumTopic, ApiError> {
-        Ok(ForumTopic {
-            id: self.next_id(),
-            title: title.to_string(),
-            icon_color,
-            icon_custom_emoji_id: icon_custom_emoji_id.map(|id| id.to_string()),
-            is_closed: false,
-            is_hidden: false,
-        })
-    }
-
-    async fn edit_forum_topic(
-        &self,
-        _chat_id: ChatId,
-        _topic_id: i32,
-        _title: Option<&str>,
-        _icon: Option<i64>,
-        _closed: Option<bool>,
-        _hidden: Option<bool>,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn delete_forum_topic(&self, _chat_id: ChatId, _topic_id: i32) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn unpin_all_forum_topic_messages(
-        &self,
-        _chat_id: ChatId,
-        _topic_id: i32,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    // Stars API
-
-    async fn get_star_transactions(
-        &self,
-        _offset: Option<&str>,
-        _limit: Option<i32>,
-    ) -> Result<StarTransactions, ApiError> {
-        Ok(StarTransactions {
-            balance: StarBalance {
-                amount: 1000,
-                nanos: 0,
-            },
-            transactions: vec![],
-            next_offset: None,
-        })
-    }
-
-    async fn refund_star_payment(
-        &self,
-        _user_id: UserId,
-        _charge_id: &str,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn send_media_group(
-        &self,
-        _chat_id: ChatId,
-        _media: Vec<MediaGroupItem>,
-    ) -> Result<Vec<SentMessage>, ApiError> {
-        Ok(vec![])
-    }
-
-    async fn stop_poll(&self, _chat_id: ChatId, _message_id: MessageId) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn send_invoice(
-        &self,
-        chat_id: ChatId,
-        _invoice: Invoice,
-    ) -> Result<SentMessage, ApiError> {
-        let id = MessageId(self.next_id());
-        Ok(SentMessage {
-            chat_id,
-            message_id: id,
-        })
-    }
-
-    async fn restrict_chat_member(
-        &self,
-        _chat_id: ChatId,
-        _user_id: UserId,
-        _permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn promote_chat_member(
-        &self,
-        _chat_id: ChatId,
-        _user_id: UserId,
-        _permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn get_chat_member(
-        &self,
-        _chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<ChatMember, ApiError> {
-        Ok(ChatMember {
-            user: UserInfo {
-                id: user_id,
-                first_name: "Mock".to_string(),
-                last_name: None,
+        async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
+            Ok(ChatInfo {
+                id: chat_id,
+                chat_type: ChatType::Private,
+                title: Some("Mock Chat".to_string()),
                 username: None,
-                language_code: None,
-            },
-            status: ChatMemberStatus::Member,
-        })
-    }
+                first_name: None,
+                last_name: None,
+                member_count: None,
+            })
+        }
 
-    async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
-        Ok(ChatInfo {
-            id: chat_id,
-            chat_type: ChatType::Private,
-            title: Some("Mock Chat".to_string()),
-            username: None,
-            first_name: None,
-            last_name: None,
-            member_count: None,
-        })
-    }
+        async fn create_chat_invite_link(
+            &self,
+            _chat_id: ChatId,
+            _name: Option<&str>,
+            _expire_date: Option<i64>,
+            _member_limit: Option<i32>,
+        ) -> Result<String, ApiError> {
+            Ok("https://t.me/+mock_invite_link".to_string())
+        }
 
-    async fn set_chat_permissions(
-        &self,
-        _chat_id: ChatId,
-        _permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn unpin_all_chat_messages(&self, _chat_id: ChatId) -> Result<(), ApiError> {
-        Ok(())
-    }
-
-    async fn create_chat_invite_link(
-        &self,
-        _chat_id: ChatId,
-        _name: Option<&str>,
-        _expire_date: Option<i64>,
-        _member_limit: Option<i32>,
-    ) -> Result<String, ApiError> {
-        Ok("https://t.me/+mock_invite_link".to_string())
-    }
-
-    async fn export_chat_invite_link(&self, _chat_id: ChatId) -> Result<String, ApiError> {
-        Ok("https://t.me/+mock_export_link".to_string())
-    }
-
-    async fn set_chat_photo(&self, _chat_id: ChatId, _photo: FileSource) -> Result<(), ApiError> {
-        Ok(())
+        async fn export_chat_invite_link(&self, _chat_id: ChatId) -> Result<String, ApiError> {
+            Ok("https://t.me/+mock_export_link".to_string())
+        }
     }
 }

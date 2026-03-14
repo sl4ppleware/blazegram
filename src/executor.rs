@@ -185,7 +185,7 @@ impl DiffExecutor {
                         )
                         .await
                     } else {
-                        unreachable!("EditType::Text with non-Text content")
+                        Err(ApiError::Unknown("EditType::Text with non-Text content".into()))
                     }
                 }
                 EditType::Caption => {

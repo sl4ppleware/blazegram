@@ -11,7 +11,6 @@
 //! - Methods like `answer_callback_query` bypass the main limiter entirely
 //! - Auto-retries on 429 with exponential backoff
 
-use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -465,694 +464,82 @@ impl<B: BotApi> RateLimitedBotApi<B> {
     }
 }
 
-#[async_trait]
-impl<B: BotApi> BotApi for RateLimitedBotApi<B> {
-    async fn send_message(
-        &self,
-        chat_id: ChatId,
-        content: MessageContent,
-        opts: SendOptions,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .send_message(chat_id, content.clone(), opts.clone())
-        })
-        .await
-    }
-
-    async fn edit_message_text(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        text: String,
-        parse_mode: ParseMode,
-        keyboard: Option<InlineKeyboard>,
-        link_preview: bool,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.edit_message_text(
-                chat_id,
-                message_id,
-                text.clone(),
-                parse_mode,
-                keyboard.clone(),
-                link_preview,
-            )
-        })
-        .await
-    }
-
-    async fn edit_message_caption(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        caption: Option<String>,
-        parse_mode: ParseMode,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.edit_message_caption(
-                chat_id,
-                message_id,
-                caption.clone(),
-                parse_mode,
-                keyboard.clone(),
-            )
-        })
-        .await
-    }
-
-    async fn edit_message_media(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        content: MessageContent,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .edit_message_media(chat_id, message_id, content.clone(), keyboard.clone())
-        })
-        .await
-    }
-
-    async fn edit_message_keyboard(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .edit_message_keyboard(chat_id, message_id, keyboard.clone())
-        })
-        .await
-    }
-
-    async fn delete_messages(
-        &self,
-        chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.delete_messages(chat_id, message_ids.clone())
-        })
-        .await
-    }
-
-    /// answer_callback_query bypasses the main rate limiter — it's not counted
-    /// in the 30 RPS write limit and has much higher throughput.
-    async fn answer_callback_query(
-        &self,
-        id: String,
-        text: Option<String>,
-        show_alert: bool,
-    ) -> Result<(), ApiError> {
-        self.bypass_call(|| {
-            self.inner
-                .answer_callback_query(id.clone(), text.clone(), show_alert)
-        })
-        .await
-    }
-
-    async fn send_chat_action(&self, chat_id: ChatId, action: ChatAction) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_chat_action(chat_id, action)
-        })
-        .await
-    }
-
-    async fn answer_inline_query(
-        &self,
-        query_id: String,
-        results: Vec<InlineQueryResult>,
-        next_offset: Option<String>,
-        cache_time: Option<i32>,
-        is_personal: bool,
-    ) -> Result<(), ApiError> {
-        self.inner
-            .answer_inline_query(query_id, results, next_offset, cache_time, is_personal)
-            .await
-    }
-
-    // ── Forward / Copy (rate-limited) ──
-
-    async fn forward_message(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .forward_message(chat_id, from_chat_id, message_id)
-        })
-        .await
-    }
-
-    async fn copy_message(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<MessageId, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.copy_message(chat_id, from_chat_id, message_id)
-        })
-        .await
-    }
-
-    // ── Media (rate-limited) ──
-
-    async fn send_media_group(
-        &self,
-        chat_id: ChatId,
-        media: Vec<MediaGroupItem>,
-    ) -> Result<Vec<SentMessage>, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_media_group(chat_id, media.clone())
-        })
-        .await
-    }
-
-    async fn download_file(&self, file_id: &str) -> Result<DownloadedFile, ApiError> {
-        // Downloads don't count against send rate limits
-        self.inner.download_file(file_id).await
-    }
-
-    // ── Fun (rate-limited) ──
-
-    async fn send_poll(&self, chat_id: ChatId, poll: SendPoll) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_poll(chat_id, poll.clone())
-        })
-        .await
-    }
-
-    async fn stop_poll(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.stop_poll(chat_id, message_id))
-            .await
-    }
-
-    async fn send_dice(&self, chat_id: ChatId, emoji: DiceEmoji) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.send_dice(chat_id, emoji))
-            .await
-    }
-
-    async fn send_contact(
-        &self,
-        chat_id: ChatId,
-        contact: Contact,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_contact(chat_id, contact.clone())
-        })
-        .await
-    }
-
-    async fn send_venue(&self, chat_id: ChatId, venue: Venue) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_venue(chat_id, venue.clone())
-        })
-        .await
-    }
-
-    // ── Payments (bypass rate limiter) ──
-
-    async fn send_invoice(
-        &self,
-        chat_id: ChatId,
-        invoice: Invoice,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_invoice(chat_id, invoice.clone())
-        })
-        .await
-    }
-
-    async fn answer_pre_checkout_query(
-        &self,
-        id: String,
-        ok: bool,
-        error_message: Option<String>,
-    ) -> Result<(), ApiError> {
-        // Must respond immediately, bypass rate limiter
-        self.inner
-            .answer_pre_checkout_query(id, ok, error_message)
-            .await
-    }
-
-    // ── Admin (rate-limited) ──
-
-    async fn ban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.ban_chat_member(chat_id, user_id)
-        })
-        .await
-    }
-
-    async fn unban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.unban_chat_member(chat_id, user_id)
-        })
-        .await
-    }
-
-    async fn restrict_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .restrict_chat_member(chat_id, user_id, permissions.clone())
-        })
-        .await
-    }
-
-    async fn promote_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .promote_chat_member(chat_id, user_id, permissions.clone())
-        })
-        .await
-    }
-
-    async fn get_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<ChatMember, ApiError> {
-        // Read-only, no rate limit
-        self.inner.get_chat_member(chat_id, user_id).await
-    }
-
-    async fn get_chat_member_count(&self, chat_id: ChatId) -> Result<i32, ApiError> {
-        self.inner.get_chat_member_count(chat_id).await
-    }
-
-    async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
-        self.inner.get_chat(chat_id).await
-    }
-
-    async fn leave_chat(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.leave_chat(chat_id))
-            .await
-    }
-
-    // ── Bot settings (bypass) ──
-
-    async fn set_my_commands(&self, commands: Vec<BotCommand>) -> Result<(), ApiError> {
-        self.inner.set_my_commands(commands).await
-    }
-
-    async fn delete_my_commands(&self) -> Result<(), ApiError> {
-        self.inner.delete_my_commands().await
-    }
-
-    async fn get_me(&self) -> Result<BotInfo, ApiError> {
-        self.inner.get_me().await
-    }
-
-    // ── Pinning (rate-limited) ──
-
-    async fn pin_chat_message(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        silent: bool,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.pin_chat_message(chat_id, message_id, silent)
-        })
-        .await
-    }
-
-    async fn unpin_chat_message(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.unpin_chat_message(chat_id, message_id)
-        })
-        .await
-    }
-
-    async fn unpin_all_chat_messages(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.unpin_all_chat_messages(chat_id)
-        })
-        .await
-    }
-
-    // ── Reactions (rate-limited) ──
-
-    async fn set_message_reaction(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        emoji: &str,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.set_message_reaction(chat_id, message_id, emoji)
-        })
-        .await
-    }
-
-    // ── Invite links ──
-
-    async fn create_chat_invite_link(
-        &self,
-        chat_id: ChatId,
-        name: Option<&str>,
-        expire_date: Option<i64>,
-        member_limit: Option<i32>,
-    ) -> Result<String, ApiError> {
-        self.inner
-            .create_chat_invite_link(chat_id, name, expire_date, member_limit)
-            .await
-    }
-
-    async fn export_chat_invite_link(&self, chat_id: ChatId) -> Result<String, ApiError> {
-        self.inner.export_chat_invite_link(chat_id).await
-    }
-
-    // ── Chat management (rate-limited writes, passthrough reads) ──
-
-    async fn set_chat_permissions(
-        &self,
-        chat_id: ChatId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .set_chat_permissions(chat_id, permissions.clone())
-        })
-        .await
-    }
-
-    async fn revoke_chat_invite_link(
-        &self,
-        chat_id: ChatId,
-        invite_link: &str,
-    ) -> Result<ChatInviteLink, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.revoke_chat_invite_link(chat_id, invite_link)
-        })
-        .await
-    }
-
-    async fn approve_chat_join_request(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.approve_chat_join_request(chat_id, user_id)
-        })
-        .await
-    }
-
-    async fn decline_chat_join_request(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.decline_chat_join_request(chat_id, user_id)
-        })
-        .await
-    }
-
-    async fn set_chat_title(&self, chat_id: ChatId, title: &str) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.set_chat_title(chat_id, title))
-            .await
-    }
-
-    async fn set_chat_description(
-        &self,
-        chat_id: ChatId,
-        description: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.set_chat_description(chat_id, description)
-        })
-        .await
-    }
-
-    async fn set_chat_photo(&self, chat_id: ChatId, photo: FileSource) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.set_chat_photo(chat_id, photo.clone())
-        })
-        .await
-    }
-
-    async fn delete_chat_photo(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || self.inner.delete_chat_photo(chat_id))
-            .await
-    }
-
-    async fn get_chat_administrators(&self, chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
-        // Read-only
-        self.inner.get_chat_administrators(chat_id).await
-    }
-
-    async fn set_chat_administrator_custom_title(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        custom_title: &str,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .set_chat_administrator_custom_title(chat_id, user_id, custom_title)
-        })
-        .await
-    }
-
-    async fn get_user_profile_photos(
-        &self,
-        user_id: UserId,
-        offset: Option<i32>,
-        limit: Option<i32>,
-    ) -> Result<UserProfilePhotos, ApiError> {
-        // Read-only
-        self.inner
-            .get_user_profile_photos(user_id, offset, limit)
-            .await
-    }
-
-    // ── Bot settings (bypass — low frequency, no chat context) ──
-
-    async fn get_my_commands(&self) -> Result<Vec<BotCommand>, ApiError> {
-        self.inner.get_my_commands().await
-    }
-
-    async fn set_my_description(
-        &self,
-        description: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.inner
-            .set_my_description(description, language_code)
-            .await
-    }
-
-    async fn get_my_description(
-        &self,
-        language_code: Option<&str>,
-    ) -> Result<BotDescription, ApiError> {
-        self.inner.get_my_description(language_code).await
-    }
-
-    async fn set_my_short_description(
-        &self,
-        short_description: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.inner
-            .set_my_short_description(short_description, language_code)
-            .await
-    }
-
-    async fn get_my_short_description(
-        &self,
-        language_code: Option<&str>,
-    ) -> Result<BotShortDescription, ApiError> {
-        self.inner.get_my_short_description(language_code).await
-    }
-
-    async fn set_my_name(
-        &self,
-        name: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.inner.set_my_name(name, language_code).await
-    }
-
-    async fn get_my_name(&self, language_code: Option<&str>) -> Result<BotName, ApiError> {
-        self.inner.get_my_name(language_code).await
-    }
-
-    async fn set_chat_menu_button(
-        &self,
-        chat_id: Option<ChatId>,
-        menu_button: MenuButton,
-    ) -> Result<(), ApiError> {
-        self.inner.set_chat_menu_button(chat_id, menu_button).await
-    }
-
-    async fn get_chat_menu_button(&self, chat_id: Option<ChatId>) -> Result<MenuButton, ApiError> {
-        self.inner.get_chat_menu_button(chat_id).await
-    }
-
-    // ── Payments (bypass — time-sensitive) ──
-
-    async fn answer_shipping_query(
-        &self,
-        shipping_query_id: String,
-        ok: bool,
-        shipping_options: Option<Vec<ShippingOption>>,
-        error_message: Option<String>,
-    ) -> Result<(), ApiError> {
-        self.inner
-            .answer_shipping_query(shipping_query_id, ok, shipping_options, error_message)
-            .await
-    }
-
-    async fn create_invoice_link(&self, invoice: Invoice) -> Result<String, ApiError> {
-        self.inner.create_invoice_link(invoice).await
-    }
-
-    // ── Batch operations (rate-limited) ──
-
-    async fn forward_messages(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .forward_messages(chat_id, from_chat_id, message_ids.clone())
-        })
-        .await
-    }
-
-    async fn copy_messages(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .copy_messages(chat_id, from_chat_id, message_ids.clone())
-        })
-        .await
-    }
-
-    // ── Sticker & Location (rate-limited) ──
-
-    async fn send_sticker(
-        &self,
-        chat_id: ChatId,
-        sticker: FileSource,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_sticker(chat_id, sticker.clone())
-        })
-        .await
-    }
-
-    async fn send_location(
-        &self,
-        chat_id: ChatId,
-        latitude: f64,
-        longitude: f64,
-    ) -> Result<SentMessage, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.send_location(chat_id, latitude, longitude)
-        })
-        .await
-    }
-
-    // ── Forum topics (rate-limited) ──
-
-    async fn create_forum_topic(
-        &self,
-        chat_id: ChatId,
-        title: &str,
-        icon_color: Option<i32>,
-        icon_custom_emoji_id: Option<i64>,
-    ) -> Result<ForumTopic, ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner
-                .create_forum_topic(chat_id, title, icon_color, icon_custom_emoji_id)
-        })
-        .await
-    }
-
-    async fn edit_forum_topic(
-        &self,
-        chat_id: ChatId,
-        topic_id: i32,
-        title: Option<&str>,
-        icon_custom_emoji_id: Option<i64>,
-        closed: Option<bool>,
-        hidden: Option<bool>,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.edit_forum_topic(
-                chat_id,
-                topic_id,
-                title,
-                icon_custom_emoji_id,
-                closed,
-                hidden,
-            )
-        })
-        .await
-    }
-
-    async fn delete_forum_topic(&self, chat_id: ChatId, topic_id: i32) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.delete_forum_topic(chat_id, topic_id)
-        })
-        .await
-    }
-
-    async fn unpin_all_forum_topic_messages(
-        &self,
-        chat_id: ChatId,
-        topic_id: i32,
-    ) -> Result<(), ApiError> {
-        self.rate_limited_call(Some(chat_id), || {
-            self.inner.unpin_all_forum_topic_messages(chat_id, topic_id)
-        })
-        .await
-    }
-
-    // ── Stars (bypass — no chat context) ──
-
-    async fn get_star_transactions(
-        &self,
-        offset: Option<&str>,
-        limit: Option<i32>,
-    ) -> Result<StarTransactions, ApiError> {
-        self.inner.get_star_transactions(offset, limit).await
-    }
-
-    async fn refund_star_payment(&self, user_id: UserId, charge_id: &str) -> Result<(), ApiError> {
-        self.inner.refund_star_payment(user_id, charge_id).await
-    }
+impl_rate_limited_botapi! {
+    rate_limited: [
+        fn send_message(chat_id: ChatId, content: MessageContent, opts: SendOptions) -> SentMessage;
+        fn edit_message_text(chat_id: ChatId, message_id: MessageId, text: String, parse_mode: ParseMode, keyboard: Option<InlineKeyboard>, link_preview: bool) -> ();
+        fn edit_message_caption(chat_id: ChatId, message_id: MessageId, caption: Option<String>, parse_mode: ParseMode, keyboard: Option<InlineKeyboard>) -> ();
+        fn edit_message_media(chat_id: ChatId, message_id: MessageId, content: MessageContent, keyboard: Option<InlineKeyboard>) -> ();
+        fn edit_message_keyboard(chat_id: ChatId, message_id: MessageId, keyboard: Option<InlineKeyboard>) -> ();
+        fn delete_messages(chat_id: ChatId, message_ids: Vec<MessageId>) -> ();
+        fn send_chat_action(chat_id: ChatId, action: ChatAction) -> ();
+        fn forward_message(chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId) -> SentMessage;
+        fn copy_message(chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId) -> MessageId;
+        fn send_media_group(chat_id: ChatId, media: Vec<MediaGroupItem>) -> Vec<SentMessage>;
+        fn send_poll(chat_id: ChatId, poll: SendPoll) -> SentMessage;
+        fn stop_poll(chat_id: ChatId, message_id: MessageId) -> ();
+        fn send_dice(chat_id: ChatId, emoji: DiceEmoji) -> SentMessage;
+        fn send_contact(chat_id: ChatId, contact: Contact) -> SentMessage;
+        fn send_venue(chat_id: ChatId, venue: Venue) -> SentMessage;
+        fn send_invoice(chat_id: ChatId, invoice: Invoice) -> SentMessage;
+        fn ban_chat_member(chat_id: ChatId, user_id: UserId) -> ();
+        fn unban_chat_member(chat_id: ChatId, user_id: UserId) -> ();
+        fn restrict_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions) -> ();
+        fn promote_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions) -> ();
+        fn leave_chat(chat_id: ChatId) -> ();
+        fn pin_chat_message(chat_id: ChatId, message_id: MessageId, silent: bool) -> ();
+        fn unpin_chat_message(chat_id: ChatId, message_id: MessageId) -> ();
+        fn unpin_all_chat_messages(chat_id: ChatId) -> ();
+        fn set_message_reaction(chat_id: ChatId, message_id: MessageId, emoji: &str) -> ();
+        fn set_chat_permissions(chat_id: ChatId, permissions: ChatPermissions) -> ();
+        fn revoke_chat_invite_link(chat_id: ChatId, invite_link: &str) -> ChatInviteLink;
+        fn approve_chat_join_request(chat_id: ChatId, user_id: UserId) -> ();
+        fn decline_chat_join_request(chat_id: ChatId, user_id: UserId) -> ();
+        fn set_chat_title(chat_id: ChatId, title: &str) -> ();
+        fn set_chat_description(chat_id: ChatId, description: Option<&str>) -> ();
+        fn set_chat_photo(chat_id: ChatId, photo: FileSource) -> ();
+        fn delete_chat_photo(chat_id: ChatId) -> ();
+        fn set_chat_administrator_custom_title(chat_id: ChatId, user_id: UserId, custom_title: &str) -> ();
+        fn forward_messages(chat_id: ChatId, from_chat_id: ChatId, message_ids: Vec<MessageId>) -> Vec<MessageId>;
+        fn copy_messages(chat_id: ChatId, from_chat_id: ChatId, message_ids: Vec<MessageId>) -> Vec<MessageId>;
+        fn send_sticker(chat_id: ChatId, sticker: FileSource) -> SentMessage;
+        fn send_location(chat_id: ChatId, latitude: f64, longitude: f64) -> SentMessage;
+        fn create_forum_topic(chat_id: ChatId, title: &str, icon_color: Option<i32>, icon_custom_emoji_id: Option<i64>) -> ForumTopic;
+        fn edit_forum_topic(chat_id: ChatId, topic_id: i32, title: Option<&str>, icon_custom_emoji_id: Option<i64>, closed: Option<bool>, hidden: Option<bool>) -> ();
+        fn delete_forum_topic(chat_id: ChatId, topic_id: i32) -> ();
+        fn unpin_all_forum_topic_messages(chat_id: ChatId, topic_id: i32) -> ();
+    ]
+    bypass: [
+        fn answer_callback_query(id: String, text: Option<String>, show_alert: bool) -> ();
+    ]
+    passthrough: [
+        fn answer_inline_query(query_id: String, results: Vec<InlineQueryResult>, next_offset: Option<String>, cache_time: Option<i32>, is_personal: bool) -> ();
+        fn download_file(file_id: &str) -> DownloadedFile;
+        fn answer_pre_checkout_query(id: String, ok: bool, error_message: Option<String>) -> ();
+        fn get_chat_member(chat_id: ChatId, user_id: UserId) -> ChatMember;
+        fn get_chat_member_count(chat_id: ChatId) -> i32;
+        fn get_chat(chat_id: ChatId) -> ChatInfo;
+        fn set_my_commands(commands: Vec<BotCommand>) -> ();
+        fn delete_my_commands() -> ();
+        fn get_me() -> BotInfo;
+        fn create_chat_invite_link(chat_id: ChatId, name: Option<&str>, expire_date: Option<i64>, member_limit: Option<i32>) -> String;
+        fn export_chat_invite_link(chat_id: ChatId) -> String;
+        fn get_chat_administrators(chat_id: ChatId) -> Vec<ChatMember>;
+        fn get_user_profile_photos(user_id: UserId, offset: Option<i32>, limit: Option<i32>) -> UserProfilePhotos;
+        fn get_my_commands() -> Vec<BotCommand>;
+        fn set_my_description(description: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_description(language_code: Option<&str>) -> BotDescription;
+        fn set_my_short_description(short_description: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_short_description(language_code: Option<&str>) -> BotShortDescription;
+        fn set_my_name(name: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_name(language_code: Option<&str>) -> BotName;
+        fn set_chat_menu_button(chat_id: Option<ChatId>, menu_button: MenuButton) -> ();
+        fn get_chat_menu_button(chat_id: Option<ChatId>) -> MenuButton;
+        fn answer_shipping_query(shipping_query_id: String, ok: bool, shipping_options: Option<Vec<ShippingOption>>, error_message: Option<String>) -> ();
+        fn create_invoice_link(invoice: Invoice) -> String;
+        fn get_star_transactions(offset: Option<&str>, limit: Option<i32>) -> StarTransactions;
+        fn refund_star_payment(user_id: UserId, charge_id: &str) -> ();
+    ]
 }
 
 // ─── Tests ───

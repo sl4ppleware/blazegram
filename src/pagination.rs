@@ -26,7 +26,8 @@ impl<T> Paginator<T> {
         }
     }
 
-    /// Total number of pages.
+    /// Total number of pages for the current item count.
+    #[must_use]
     pub fn total_pages(&self) -> usize {
         if self.items.is_empty() {
             return 1;
@@ -34,7 +35,8 @@ impl<T> Paginator<T> {
         self.items.len().div_ceil(self.page_size)
     }
 
-    /// Items on the current page.
+    /// Returns a slice of items for the current page.
+    #[must_use]
     pub fn current_items(&self) -> &[T] {
         let start = self.current_page * self.page_size;
         let end = (start + self.page_size).min(self.items.len());
@@ -44,17 +46,19 @@ impl<T> Paginator<T> {
         &self.items[start..end]
     }
 
-    /// Set page.
+    /// Navigate to the given page (clamped to valid range).
     pub fn set_page(&mut self, page: usize) {
         self.current_page = page.min(self.total_pages().saturating_sub(1));
     }
 
-    /// Has prev.
+    /// Returns `true` if there is a previous page.
+    #[must_use]
     pub fn has_prev(&self) -> bool {
         self.current_page > 0
     }
 
-    /// Has next.
+    /// Returns `true` if there is a next page.
+    #[must_use]
     pub fn has_next(&self) -> bool {
         self.current_page + 1 < self.total_pages()
     }
@@ -102,4 +106,60 @@ where
             kb.nav_back(back.clone())
         })
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_paginator() {
+        let p = Paginator::new(vec![1, 2, 3, 4, 5], 2);
+        assert_eq!(p.total_pages(), 3);
+        assert_eq!(p.current_page, 0);
+    }
+
+    #[test]
+    fn current_items_first_page() {
+        let p = Paginator::new(vec![10, 20, 30, 40, 50], 2);
+        assert_eq!(p.current_items(), &[10, 20]);
+    }
+
+    #[test]
+    fn current_items_last_page() {
+        let mut p = Paginator::new(vec![10, 20, 30, 40, 50], 2);
+        p.set_page(2);
+        assert_eq!(p.current_items(), &[50]);
+    }
+
+    #[test]
+    fn set_page_clamps() {
+        let mut p = Paginator::new(vec![1, 2, 3], 2);
+        p.set_page(99);
+        assert_eq!(p.current_page, 1);
+    }
+
+    #[test]
+    fn has_prev_and_next() {
+        let mut p = Paginator::new(vec![1, 2, 3, 4, 5], 2);
+        assert!(!p.has_prev());
+        assert!(p.has_next());
+
+        p.set_page(1);
+        assert!(p.has_prev());
+        assert!(p.has_next());
+
+        p.set_page(2);
+        assert!(p.has_prev());
+        assert!(!p.has_next());
+    }
+
+    #[test]
+    fn empty_paginator() {
+        let p: Paginator<i32> = Paginator::new(vec![], 5);
+        assert_eq!(p.total_pages(), 1);
+        assert!(p.current_items().is_empty());
+        assert!(!p.has_prev());
+        assert!(!p.has_next());
+    }
 }

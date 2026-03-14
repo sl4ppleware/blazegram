@@ -19,7 +19,6 @@ mod send;
 mod settings;
 mod stars;
 
-use async_trait::async_trait;
 use dashmap::DashMap;
 use grammers_client::{
     Client, InvocationError,
@@ -400,458 +399,90 @@ impl GrammersAdapter {
 // ─── BotApi trait implementation ───
 // Each method delegates to the corresponding impl_ method in the sub-module.
 
-#[async_trait]
-impl BotApi for GrammersAdapter {
-    async fn send_message(
-        &self,
-        chat_id: ChatId,
-        content: MessageContent,
-        opts: SendOptions,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_send_message(chat_id, content, opts).await
-    }
-    async fn edit_message_text(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        text: String,
-        parse_mode: ParseMode,
-        keyboard: Option<InlineKeyboard>,
-        link_preview: bool,
-    ) -> Result<(), ApiError> {
-        self.impl_edit_message_text(
-            chat_id,
-            message_id,
-            text,
-            parse_mode,
-            keyboard,
-            link_preview,
-        )
-        .await
-    }
-    async fn edit_message_caption(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        caption: Option<String>,
-        parse_mode: ParseMode,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.impl_edit_message_caption(chat_id, message_id, caption, parse_mode, keyboard)
-            .await
-    }
-    async fn edit_message_media(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        content: MessageContent,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.impl_edit_message_media(chat_id, message_id, content, keyboard)
-            .await
-    }
-    async fn edit_message_keyboard(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        keyboard: Option<InlineKeyboard>,
-    ) -> Result<(), ApiError> {
-        self.impl_edit_message_keyboard(chat_id, message_id, keyboard)
-            .await
-    }
-    async fn delete_messages(
-        &self,
-        chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<(), ApiError> {
-        self.impl_delete_messages(chat_id, message_ids).await
-    }
-    async fn answer_callback_query(
-        &self,
-        id: String,
-        text: Option<String>,
-        show_alert: bool,
-    ) -> Result<(), ApiError> {
-        self.impl_answer_callback_query(id, text, show_alert).await
-    }
-    async fn send_chat_action(&self, chat_id: ChatId, action: ChatAction) -> Result<(), ApiError> {
-        self.impl_send_chat_action(chat_id, action).await
-    }
-    async fn answer_inline_query(
-        &self,
-        query_id: String,
-        results: Vec<InlineQueryResult>,
-        next_offset: Option<String>,
-        cache_time: Option<i32>,
-        is_personal: bool,
-    ) -> Result<(), ApiError> {
-        self.impl_answer_inline_query(query_id, results, next_offset, cache_time, is_personal)
-            .await
-    }
-    async fn forward_message(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_forward_message(chat_id, from_chat_id, message_id)
-            .await
-    }
-    async fn copy_message(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<MessageId, ApiError> {
-        self.impl_copy_message(chat_id, from_chat_id, message_id)
-            .await
-    }
-    async fn download_file(&self, file_id: &str) -> Result<DownloadedFile, ApiError> {
-        self.impl_download_file(file_id).await
-    }
-    async fn send_poll(&self, chat_id: ChatId, poll: SendPoll) -> Result<SentMessage, ApiError> {
-        self.impl_send_poll(chat_id, poll).await
-    }
-    async fn stop_poll(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
-        self.impl_stop_poll(chat_id, message_id).await
-    }
-    async fn send_dice(&self, chat_id: ChatId, emoji: DiceEmoji) -> Result<SentMessage, ApiError> {
-        self.impl_send_dice(chat_id, emoji).await
-    }
-    async fn send_contact(
-        &self,
-        chat_id: ChatId,
-        contact: Contact,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_send_contact(chat_id, contact).await
-    }
-    async fn send_venue(&self, chat_id: ChatId, venue: Venue) -> Result<SentMessage, ApiError> {
-        self.impl_send_venue(chat_id, venue).await
-    }
-    async fn ban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.impl_ban_chat_member(chat_id, user_id).await
-    }
-    async fn unban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        self.impl_unban_chat_member(chat_id, user_id).await
-    }
-    async fn restrict_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.impl_restrict_chat_member(chat_id, user_id, &permissions)
-            .await
-    }
-    async fn promote_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.impl_promote_chat_member(chat_id, user_id, &permissions)
-            .await
-    }
-    async fn get_chat_member_count(&self, chat_id: ChatId) -> Result<i32, ApiError> {
-        self.impl_get_chat_member_count(chat_id).await
-    }
-    async fn leave_chat(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.impl_leave_chat(chat_id).await
-    }
-    async fn set_my_commands(&self, commands: Vec<BotCommand>) -> Result<(), ApiError> {
-        self.impl_set_my_commands(commands).await
-    }
-    async fn delete_my_commands(&self) -> Result<(), ApiError> {
-        self.impl_delete_my_commands().await
-    }
-    async fn get_me(&self) -> Result<BotInfo, ApiError> {
-        self.impl_get_me().await
-    }
-    async fn pin_chat_message(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        silent: bool,
-    ) -> Result<(), ApiError> {
-        self.impl_pin_chat_message(chat_id, message_id, silent)
-            .await
-    }
-    async fn unpin_chat_message(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-    ) -> Result<(), ApiError> {
-        self.impl_unpin_chat_message(chat_id, message_id).await
-    }
-    async fn set_message_reaction(
-        &self,
-        chat_id: ChatId,
-        message_id: MessageId,
-        emoji: &str,
-    ) -> Result<(), ApiError> {
-        self.impl_set_message_reaction(chat_id, message_id, emoji)
-            .await
-    }
-    async fn export_chat_invite_link(&self, chat_id: ChatId) -> Result<String, ApiError> {
-        self.impl_export_chat_invite_link(chat_id).await
-    }
-    async fn answer_pre_checkout_query(
-        &self,
-        id: String,
-        ok: bool,
-        error_message: Option<String>,
-    ) -> Result<(), ApiError> {
-        self.impl_answer_pre_checkout_query(id, ok, error_message)
-            .await
-    }
-    async fn set_chat_title(&self, chat_id: ChatId, title: &str) -> Result<(), ApiError> {
-        self.impl_set_chat_title(chat_id, title).await
-    }
-    async fn set_chat_description(
-        &self,
-        chat_id: ChatId,
-        description: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.impl_set_chat_description(chat_id, description).await
-    }
-    async fn delete_chat_photo(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.impl_delete_chat_photo(chat_id).await
-    }
-    async fn get_chat_administrators(&self, chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
-        self.impl_get_chat_administrators(chat_id).await
-    }
-    async fn set_chat_administrator_custom_title(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-        custom_title: &str,
-    ) -> Result<(), ApiError> {
-        self.impl_set_chat_administrator_custom_title(chat_id, user_id, custom_title)
-            .await
-    }
-    async fn approve_chat_join_request(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<(), ApiError> {
-        self.impl_approve_chat_join_request(chat_id, user_id).await
-    }
-    async fn decline_chat_join_request(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<(), ApiError> {
-        self.impl_decline_chat_join_request(chat_id, user_id).await
-    }
-    async fn get_user_profile_photos(
-        &self,
-        user_id: UserId,
-        offset: Option<i32>,
-        limit: Option<i32>,
-    ) -> Result<UserProfilePhotos, ApiError> {
-        self.impl_get_user_profile_photos(user_id, offset, limit)
-            .await
-    }
-    async fn get_my_commands(&self) -> Result<Vec<BotCommand>, ApiError> {
-        self.impl_get_my_commands().await
-    }
-    async fn set_my_description(
-        &self,
-        description: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.impl_set_my_description(description, language_code)
-            .await
-    }
-    async fn get_my_description(
-        &self,
-        language_code: Option<&str>,
-    ) -> Result<BotDescription, ApiError> {
-        self.impl_get_my_description(language_code).await
-    }
-    async fn set_my_short_description(
-        &self,
-        short_description: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.impl_set_my_short_description(short_description, language_code)
-            .await
-    }
-    async fn get_my_short_description(
-        &self,
-        language_code: Option<&str>,
-    ) -> Result<BotShortDescription, ApiError> {
-        self.impl_get_my_short_description(language_code).await
-    }
-    async fn set_my_name(
-        &self,
-        name: Option<&str>,
-        language_code: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.impl_set_my_name(name, language_code).await
-    }
-    async fn get_my_name(&self, language_code: Option<&str>) -> Result<BotName, ApiError> {
-        self.impl_get_my_name(language_code).await
-    }
-    async fn set_chat_menu_button(
-        &self,
-        chat_id: Option<ChatId>,
-        menu_button: MenuButton,
-    ) -> Result<(), ApiError> {
-        self.impl_set_chat_menu_button(chat_id, menu_button).await
-    }
-    async fn get_chat_menu_button(&self, chat_id: Option<ChatId>) -> Result<MenuButton, ApiError> {
-        self.impl_get_chat_menu_button(chat_id).await
-    }
-    async fn forward_messages(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        self.impl_forward_messages(chat_id, from_chat_id, message_ids)
-            .await
-    }
-    async fn copy_messages(
-        &self,
-        chat_id: ChatId,
-        from_chat_id: ChatId,
-        message_ids: Vec<MessageId>,
-    ) -> Result<Vec<MessageId>, ApiError> {
-        self.impl_copy_messages(chat_id, from_chat_id, message_ids)
-            .await
-    }
-    async fn send_sticker(
-        &self,
-        chat_id: ChatId,
-        sticker: FileSource,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_send_sticker(chat_id, sticker).await
-    }
-    async fn send_location(
-        &self,
-        chat_id: ChatId,
-        latitude: f64,
-        longitude: f64,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_send_location(chat_id, latitude, longitude).await
-    }
-    async fn create_forum_topic(
-        &self,
-        chat_id: ChatId,
-        title: &str,
-        icon_color: Option<i32>,
-        icon_custom_emoji_id: Option<i64>,
-    ) -> Result<ForumTopic, ApiError> {
-        self.impl_create_forum_topic(chat_id, title, icon_color, icon_custom_emoji_id)
-            .await
-    }
-    async fn edit_forum_topic(
-        &self,
-        chat_id: ChatId,
-        topic_id: i32,
-        title: Option<&str>,
-        icon_custom_emoji_id: Option<i64>,
-        closed: Option<bool>,
-        hidden: Option<bool>,
-    ) -> Result<(), ApiError> {
-        self.impl_edit_forum_topic(
-            chat_id,
-            topic_id,
-            title,
-            icon_custom_emoji_id,
-            closed,
-            hidden,
-        )
-        .await
-    }
-    async fn delete_forum_topic(&self, chat_id: ChatId, topic_id: i32) -> Result<(), ApiError> {
-        self.impl_delete_forum_topic(chat_id, topic_id).await
-    }
-    async fn unpin_all_forum_topic_messages(
-        &self,
-        chat_id: ChatId,
-        topic_id: i32,
-    ) -> Result<(), ApiError> {
-        self.impl_unpin_all_forum_topic_messages(chat_id, topic_id)
-            .await
-    }
-    async fn get_star_transactions(
-        &self,
-        offset: Option<&str>,
-        limit: Option<i32>,
-    ) -> Result<StarTransactions, ApiError> {
-        self.impl_get_star_transactions(offset, limit).await
-    }
-    async fn refund_star_payment(&self, user_id: UserId, charge_id: &str) -> Result<(), ApiError> {
-        self.impl_refund_star_payment(user_id, charge_id).await
-    }
-    async fn send_media_group(
-        &self,
-        chat_id: ChatId,
-        media: Vec<MediaGroupItem>,
-    ) -> Result<Vec<SentMessage>, ApiError> {
-        self.impl_send_media_group(chat_id, media).await
-    }
-    async fn send_invoice(
-        &self,
-        chat_id: ChatId,
-        invoice: Invoice,
-    ) -> Result<SentMessage, ApiError> {
-        self.impl_send_invoice(chat_id, invoice).await
-    }
-    async fn get_chat_member(
-        &self,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<ChatMember, ApiError> {
-        self.impl_get_chat_member(chat_id, user_id).await
-    }
-    async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
-        self.impl_get_chat(chat_id).await
-    }
-    async fn set_chat_permissions(
-        &self,
-        chat_id: ChatId,
-        permissions: ChatPermissions,
-    ) -> Result<(), ApiError> {
-        self.impl_set_chat_permissions(chat_id, &permissions).await
-    }
-    async fn set_chat_photo(&self, chat_id: ChatId, photo: FileSource) -> Result<(), ApiError> {
-        self.impl_set_chat_photo(chat_id, photo).await
-    }
-    async fn unpin_all_chat_messages(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        self.impl_unpin_all_chat_messages(chat_id).await
-    }
-    async fn create_chat_invite_link(
-        &self,
-        chat_id: ChatId,
-        name: Option<&str>,
-        expire_date: Option<i64>,
-        member_limit: Option<i32>,
-    ) -> Result<String, ApiError> {
-        self.impl_create_chat_invite_link(chat_id, name, expire_date, member_limit)
-            .await
-    }
-    async fn revoke_chat_invite_link(
-        &self,
-        chat_id: ChatId,
-        invite_link: &str,
-    ) -> Result<ChatInviteLink, ApiError> {
-        self.impl_revoke_chat_invite_link(chat_id, invite_link)
-            .await
-    }
-    async fn answer_shipping_query(
-        &self,
-        shipping_query_id: String,
-        ok: bool,
-        shipping_options: Option<Vec<ShippingOption>>,
-        error_message: Option<String>,
-    ) -> Result<(), ApiError> {
-        self.impl_answer_shipping_query(shipping_query_id, ok, shipping_options, error_message)
-            .await
-    }
-    async fn create_invoice_link(&self, invoice: Invoice) -> Result<String, ApiError> {
-        self.impl_create_invoice_link(invoice).await
+impl_adapter_botapi! {
+    delegate: [
+        fn send_message => impl_send_message(chat_id: ChatId, content: MessageContent, opts: SendOptions) -> SentMessage;
+        fn edit_message_text => impl_edit_message_text(chat_id: ChatId, message_id: MessageId, text: String, parse_mode: ParseMode, keyboard: Option<InlineKeyboard>, link_preview: bool) -> ();
+        fn edit_message_caption => impl_edit_message_caption(chat_id: ChatId, message_id: MessageId, caption: Option<String>, parse_mode: ParseMode, keyboard: Option<InlineKeyboard>) -> ();
+        fn edit_message_media => impl_edit_message_media(chat_id: ChatId, message_id: MessageId, content: MessageContent, keyboard: Option<InlineKeyboard>) -> ();
+        fn edit_message_keyboard => impl_edit_message_keyboard(chat_id: ChatId, message_id: MessageId, keyboard: Option<InlineKeyboard>) -> ();
+        fn delete_messages => impl_delete_messages(chat_id: ChatId, message_ids: Vec<MessageId>) -> ();
+        fn answer_callback_query => impl_answer_callback_query(id: String, text: Option<String>, show_alert: bool) -> ();
+        fn send_chat_action => impl_send_chat_action(chat_id: ChatId, action: ChatAction) -> ();
+        fn answer_inline_query => impl_answer_inline_query(query_id: String, results: Vec<InlineQueryResult>, next_offset: Option<String>, cache_time: Option<i32>, is_personal: bool) -> ();
+        fn forward_message => impl_forward_message(chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId) -> SentMessage;
+        fn copy_message => impl_copy_message(chat_id: ChatId, from_chat_id: ChatId, message_id: MessageId) -> MessageId;
+        fn download_file => impl_download_file(file_id: &str) -> DownloadedFile;
+        fn send_poll => impl_send_poll(chat_id: ChatId, poll: SendPoll) -> SentMessage;
+        fn stop_poll => impl_stop_poll(chat_id: ChatId, message_id: MessageId) -> ();
+        fn send_dice => impl_send_dice(chat_id: ChatId, emoji: DiceEmoji) -> SentMessage;
+        fn send_contact => impl_send_contact(chat_id: ChatId, contact: Contact) -> SentMessage;
+        fn send_venue => impl_send_venue(chat_id: ChatId, venue: Venue) -> SentMessage;
+        fn ban_chat_member => impl_ban_chat_member(chat_id: ChatId, user_id: UserId) -> ();
+        fn unban_chat_member => impl_unban_chat_member(chat_id: ChatId, user_id: UserId) -> ();
+        fn get_chat_member_count => impl_get_chat_member_count(chat_id: ChatId) -> i32;
+        fn leave_chat => impl_leave_chat(chat_id: ChatId) -> ();
+        fn set_my_commands => impl_set_my_commands(commands: Vec<BotCommand>) -> ();
+        fn delete_my_commands => impl_delete_my_commands() -> ();
+        fn get_me => impl_get_me() -> BotInfo;
+        fn set_message_reaction => impl_set_message_reaction(chat_id: ChatId, message_id: MessageId, emoji: &str) -> ();
+        fn export_chat_invite_link => impl_export_chat_invite_link(chat_id: ChatId) -> String;
+        fn answer_pre_checkout_query => impl_answer_pre_checkout_query(id: String, ok: bool, error_message: Option<String>) -> ();
+        fn set_chat_title => impl_set_chat_title(chat_id: ChatId, title: &str) -> ();
+        fn set_chat_description => impl_set_chat_description(chat_id: ChatId, description: Option<&str>) -> ();
+        fn delete_chat_photo => impl_delete_chat_photo(chat_id: ChatId) -> ();
+        fn get_chat_administrators => impl_get_chat_administrators(chat_id: ChatId) -> Vec<ChatMember>;
+        fn set_chat_administrator_custom_title => impl_set_chat_administrator_custom_title(chat_id: ChatId, user_id: UserId, custom_title: &str) -> ();
+        fn approve_chat_join_request => impl_approve_chat_join_request(chat_id: ChatId, user_id: UserId) -> ();
+        fn decline_chat_join_request => impl_decline_chat_join_request(chat_id: ChatId, user_id: UserId) -> ();
+        fn get_user_profile_photos => impl_get_user_profile_photos(user_id: UserId, offset: Option<i32>, limit: Option<i32>) -> UserProfilePhotos;
+        fn get_my_commands => impl_get_my_commands() -> Vec<BotCommand>;
+        fn set_my_description => impl_set_my_description(description: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_description => impl_get_my_description(language_code: Option<&str>) -> BotDescription;
+        fn set_my_short_description => impl_set_my_short_description(short_description: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_short_description => impl_get_my_short_description(language_code: Option<&str>) -> BotShortDescription;
+        fn set_my_name => impl_set_my_name(name: Option<&str>, language_code: Option<&str>) -> ();
+        fn get_my_name => impl_get_my_name(language_code: Option<&str>) -> BotName;
+        fn set_chat_menu_button => impl_set_chat_menu_button(chat_id: Option<ChatId>, menu_button: MenuButton) -> ();
+        fn get_chat_menu_button => impl_get_chat_menu_button(chat_id: Option<ChatId>) -> MenuButton;
+        fn forward_messages => impl_forward_messages(chat_id: ChatId, from_chat_id: ChatId, message_ids: Vec<MessageId>) -> Vec<MessageId>;
+        fn copy_messages => impl_copy_messages(chat_id: ChatId, from_chat_id: ChatId, message_ids: Vec<MessageId>) -> Vec<MessageId>;
+        fn send_sticker => impl_send_sticker(chat_id: ChatId, sticker: FileSource) -> SentMessage;
+        fn send_location => impl_send_location(chat_id: ChatId, latitude: f64, longitude: f64) -> SentMessage;
+        fn create_forum_topic => impl_create_forum_topic(chat_id: ChatId, title: &str, icon_color: Option<i32>, icon_custom_emoji_id: Option<i64>) -> ForumTopic;
+        fn edit_forum_topic => impl_edit_forum_topic(chat_id: ChatId, topic_id: i32, title: Option<&str>, icon_custom_emoji_id: Option<i64>, closed: Option<bool>, hidden: Option<bool>) -> ();
+        fn delete_forum_topic => impl_delete_forum_topic(chat_id: ChatId, topic_id: i32) -> ();
+        fn unpin_all_forum_topic_messages => impl_unpin_all_forum_topic_messages(chat_id: ChatId, topic_id: i32) -> ();
+        fn get_star_transactions => impl_get_star_transactions(offset: Option<&str>, limit: Option<i32>) -> StarTransactions;
+        fn refund_star_payment => impl_refund_star_payment(user_id: UserId, charge_id: &str) -> ();
+        fn send_media_group => impl_send_media_group(chat_id: ChatId, media: Vec<MediaGroupItem>) -> Vec<SentMessage>;
+        fn send_invoice => impl_send_invoice(chat_id: ChatId, invoice: Invoice) -> SentMessage;
+        fn get_chat_member => impl_get_chat_member(chat_id: ChatId, user_id: UserId) -> ChatMember;
+        fn get_chat => impl_get_chat(chat_id: ChatId) -> ChatInfo;
+        fn set_chat_photo => impl_set_chat_photo(chat_id: ChatId, photo: FileSource) -> ();
+        fn unpin_all_chat_messages => impl_unpin_all_chat_messages(chat_id: ChatId) -> ();
+        fn create_chat_invite_link => impl_create_chat_invite_link(chat_id: ChatId, name: Option<&str>, expire_date: Option<i64>, member_limit: Option<i32>) -> String;
+        fn revoke_chat_invite_link => impl_revoke_chat_invite_link(chat_id: ChatId, invite_link: &str) -> ChatInviteLink;
+        fn answer_shipping_query => impl_answer_shipping_query(shipping_query_id: String, ok: bool, shipping_options: Option<Vec<ShippingOption>>, error_message: Option<String>) -> ();
+        fn create_invoice_link => impl_create_invoice_link(invoice: Invoice) -> String;
+    ]
+    manual: {
+        // These pass `&permissions` instead of owned `permissions`
+        async fn restrict_chat_member(&self, chat_id: ChatId, user_id: UserId, permissions: ChatPermissions) -> Result<(), ApiError> {
+            self.impl_restrict_chat_member(chat_id, user_id, &permissions).await
+        }
+        async fn promote_chat_member(&self, chat_id: ChatId, user_id: UserId, permissions: ChatPermissions) -> Result<(), ApiError> {
+            self.impl_promote_chat_member(chat_id, user_id, &permissions).await
+        }
+        async fn set_chat_permissions(&self, chat_id: ChatId, permissions: ChatPermissions) -> Result<(), ApiError> {
+            self.impl_set_chat_permissions(chat_id, &permissions).await
+        }
+        // pin/unpin pass silent/message_id differently
+        async fn pin_chat_message(&self, chat_id: ChatId, message_id: MessageId, silent: bool) -> Result<(), ApiError> {
+            self.impl_pin_chat_message(chat_id, message_id, silent).await
+        }
+        async fn unpin_chat_message(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
+            self.impl_unpin_chat_message(chat_id, message_id).await
+        }
     }
 }

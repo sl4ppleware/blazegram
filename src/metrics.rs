@@ -137,6 +137,7 @@ impl Metrics {
     }
 
     /// Return a [`Timer`] guard that records elapsed time on drop.
+    #[must_use]
     pub fn timer(&self, label: &'static str) -> Timer<'_> {
         Timer {
             metrics: self,

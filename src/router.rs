@@ -314,9 +314,7 @@ impl Router {
                         }
                     }
 
-                    let screen_id = ctx.state.current_screen.clone();
-
-                    if let Some(handler) = self.text_inputs.get(&screen_id) {
+                    if let Some(handler) = self.text_inputs.get(&ctx.state.current_screen) {
                         return handler(ctx, text.clone()).await;
                     }
 
@@ -351,41 +349,16 @@ impl Router {
                 Ok(())
             }
 
-            UpdateKind::Photo {
-                file_id,
-                file_unique_id,
-                caption,
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::Photo,
-                        caption: caption.clone(),
-                        filename: None,
-                    };
-                    return handler(ctx, media).await;
-                }
-                self.handle_unrecognized(ctx).await
-            }
-
-            UpdateKind::Document {
-                file_id,
-                file_unique_id,
-                filename,
-                caption,
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::Document,
-                        caption: caption.clone(),
-                        filename: filename.clone(),
-                    };
-                    return handler(ctx, media).await;
+            UpdateKind::Photo { .. }
+            | UpdateKind::Document { .. }
+            | UpdateKind::Voice { .. }
+            | UpdateKind::VideoNote { .. }
+            | UpdateKind::Video { .. }
+            | UpdateKind::Sticker { .. } => {
+                if let Some(handler) = self.media_inputs.get(&ctx.state.current_screen) {
+                    if let Some(media) = update.kind.to_received_media() {
+                        return handler(ctx, media).await;
+                    }
                 }
                 self.handle_unrecognized(ctx).await
             }
@@ -430,82 +403,6 @@ impl Router {
                     return handler(ctx).await;
                 }
                 Ok(())
-            }
-
-            UpdateKind::Voice {
-                file_id,
-                file_unique_id,
-                caption,
-                ..
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::Voice,
-                        caption: caption.clone(),
-                        filename: None,
-                    };
-                    return handler(ctx, media).await;
-                }
-                self.handle_unrecognized(ctx).await
-            }
-
-            UpdateKind::VideoNote {
-                file_id,
-                file_unique_id,
-                ..
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::VideoNote,
-                        caption: None,
-                        filename: None,
-                    };
-                    return handler(ctx, media).await;
-                }
-                self.handle_unrecognized(ctx).await
-            }
-
-            UpdateKind::Video {
-                file_id,
-                file_unique_id,
-                caption,
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::Video,
-                        caption: caption.clone(),
-                        filename: None,
-                    };
-                    return handler(ctx, media).await;
-                }
-                self.handle_unrecognized(ctx).await
-            }
-
-            UpdateKind::Sticker {
-                file_id,
-                file_unique_id,
-            } => {
-                let screen_id = ctx.state.current_screen.clone();
-                if let Some(handler) = self.media_inputs.get(&screen_id) {
-                    let media = ReceivedMedia {
-                        file_id: file_id.clone(),
-                        file_unique_id: file_unique_id.clone(),
-                        file_type: ContentType::Sticker,
-                        caption: None,
-                        filename: None,
-                    };
-                    return handler(ctx, media).await;
-                }
-                self.handle_unrecognized(ctx).await
             }
 
             UpdateKind::ContactReceived { .. } | UpdateKind::LocationReceived { .. } => {
