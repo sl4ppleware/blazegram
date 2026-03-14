@@ -232,42 +232,67 @@ impl UpdateKind {
     /// Returns `None` for non-media variants (text messages, callbacks, etc.).
     pub fn to_received_media(&self) -> Option<ReceivedMedia> {
         match self {
-            Self::Photo { file_id, file_unique_id, caption } => Some(ReceivedMedia {
+            Self::Photo {
+                file_id,
+                file_unique_id,
+                caption,
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::Photo,
                 caption: caption.clone(),
                 filename: None,
             }),
-            Self::Document { file_id, file_unique_id, filename, caption } => Some(ReceivedMedia {
+            Self::Document {
+                file_id,
+                file_unique_id,
+                filename,
+                caption,
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::Document,
                 caption: caption.clone(),
                 filename: filename.clone(),
             }),
-            Self::Voice { file_id, file_unique_id, caption, .. } => Some(ReceivedMedia {
+            Self::Voice {
+                file_id,
+                file_unique_id,
+                caption,
+                ..
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::Voice,
                 caption: caption.clone(),
                 filename: None,
             }),
-            Self::VideoNote { file_id, file_unique_id, .. } => Some(ReceivedMedia {
+            Self::VideoNote {
+                file_id,
+                file_unique_id,
+                ..
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::VideoNote,
                 caption: None,
                 filename: None,
             }),
-            Self::Video { file_id, file_unique_id, caption } => Some(ReceivedMedia {
+            Self::Video {
+                file_id,
+                file_unique_id,
+                caption,
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::Video,
                 caption: caption.clone(),
                 filename: None,
             }),
-            Self::Sticker { file_id, file_unique_id } => Some(ReceivedMedia {
+            Self::Sticker {
+                file_id,
+                file_unique_id,
+            } => Some(ReceivedMedia {
                 file_id: file_id.clone(),
                 file_unique_id: file_unique_id.clone(),
                 file_type: ContentType::Sticker,

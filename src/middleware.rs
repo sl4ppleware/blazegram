@@ -272,7 +272,9 @@ mod tests {
         let user = test_user(123);
         let update = test_update(123);
         analytics.before(ChatId(123), &user, &update).await;
-        analytics.before(ChatId(456), &test_user(456), &test_update(456)).await;
+        analytics
+            .before(ChatId(456), &test_user(456), &test_update(456))
+            .await;
         let stats = analytics.stats();
         assert_eq!(stats.0, 2); // total_updates
         assert_eq!(stats.1, 2); // total_messages

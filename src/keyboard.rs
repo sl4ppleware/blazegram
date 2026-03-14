@@ -268,7 +268,9 @@ mod tests {
         let kb = KeyboardBuilder::new()
             .webapp("App", "https://app.example.com")
             .build();
-        assert!(matches!(&kb.rows[0][0].action, ButtonAction::WebApp(u) if u == "https://app.example.com"));
+        assert!(
+            matches!(&kb.rows[0][0].action, ButtonAction::WebApp(u) if u == "https://app.example.com")
+        );
     }
 
     #[test]
@@ -317,23 +319,22 @@ mod tests {
             .build();
         assert!(matches!(
             &kb.rows[0][0].action,
-            ButtonAction::SwitchInline { current_chat: true, .. }
+            ButtonAction::SwitchInline {
+                current_chat: true,
+                ..
+            }
         ));
     }
 
     #[test]
     fn pagination_single_page_no_buttons() {
-        let kb = KeyboardBuilder::new()
-            .pagination(0, 1, "page")
-            .build();
+        let kb = KeyboardBuilder::new().pagination(0, 1, "page").build();
         assert!(kb.rows.is_empty());
     }
 
     #[test]
     fn pagination_multi_page() {
-        let kb = KeyboardBuilder::new()
-            .pagination(0, 3, "page")
-            .build();
+        let kb = KeyboardBuilder::new().pagination(0, 3, "page").build();
         // First page: [1/3] [>]
         assert_eq!(kb.rows.len(), 1);
         assert_eq!(kb.rows[0].len(), 2); // counter + next

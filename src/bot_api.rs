@@ -4,6 +4,14 @@ use crate::screen::ReplyKeyboardAction;
 use crate::types::*;
 use async_trait::async_trait;
 
+/// Suppress unused-variable warnings and return a "not implemented" error.
+macro_rules! not_implemented {
+    ($name:expr, $($arg:expr),* $(,)?) => {{
+        let _ = ($($arg,)*);
+        Err(ApiError::Unknown(concat!($name, " not implemented").into()))
+    }};
+}
+
 /// Options for sending a new message.
 #[derive(Debug, Clone, Default)]
 pub struct SendOptions {
@@ -109,8 +117,7 @@ pub trait BotApi: Send + Sync + 'static {
         from_chat_id: ChatId,
         message_id: MessageId,
     ) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, from_chat_id, message_id);
-        Err(ApiError::Unknown("forward_message not implemented".into()))
+        not_implemented!("forward_message", chat_id, from_chat_id, message_id)
     }
 
     /// Copy a message (re-send without "Forwarded from" header).
@@ -120,8 +127,7 @@ pub trait BotApi: Send + Sync + 'static {
         from_chat_id: ChatId,
         message_id: MessageId,
     ) -> Result<MessageId, ApiError> {
-        let _ = (chat_id, from_chat_id, message_id);
-        Err(ApiError::Unknown("copy_message not implemented".into()))
+        not_implemented!("copy_message", chat_id, from_chat_id, message_id)
     }
 
     // ─── Media ───
@@ -132,34 +138,29 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         media: Vec<MediaGroupItem>,
     ) -> Result<Vec<SentMessage>, ApiError> {
-        let _ = (chat_id, media);
-        Err(ApiError::Unknown("send_media_group not implemented".into()))
+        not_implemented!("send_media_group", chat_id, media)
     }
 
     /// Download a file by its file_id. Returns a `DownloadedFile` with raw bytes and optional size.
     async fn download_file(&self, file_id: &str) -> Result<DownloadedFile, ApiError> {
-        let _ = file_id;
-        Err(ApiError::Unknown("download_file not implemented".into()))
+        not_implemented!("download_file", file_id)
     }
 
     // ─── Fun & Interactive ───
 
     /// Send a poll.
     async fn send_poll(&self, chat_id: ChatId, poll: SendPoll) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, poll);
-        Err(ApiError::Unknown("send_poll not implemented".into()))
+        not_implemented!("send_poll", chat_id, poll)
     }
 
     /// Stop a poll.
     async fn stop_poll(&self, chat_id: ChatId, message_id: MessageId) -> Result<(), ApiError> {
-        let _ = (chat_id, message_id);
-        Err(ApiError::Unknown("stop_poll not implemented".into()))
+        not_implemented!("stop_poll", chat_id, message_id)
     }
 
     /// Send a dice animation.
     async fn send_dice(&self, chat_id: ChatId, emoji: DiceEmoji) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, emoji);
-        Err(ApiError::Unknown("send_dice not implemented".into()))
+        not_implemented!("send_dice", chat_id, emoji)
     }
 
     /// Send a contact.
@@ -168,14 +169,12 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         contact: Contact,
     ) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, contact);
-        Err(ApiError::Unknown("send_contact not implemented".into()))
+        not_implemented!("send_contact", chat_id, contact)
     }
 
     /// Send a venue.
     async fn send_venue(&self, chat_id: ChatId, venue: Venue) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, venue);
-        Err(ApiError::Unknown("send_venue not implemented".into()))
+        not_implemented!("send_venue", chat_id, venue)
     }
 
     // ─── Payments ───
@@ -186,8 +185,7 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         invoice: Invoice,
     ) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, invoice);
-        Err(ApiError::Unknown("send_invoice not implemented".into()))
+        not_implemented!("send_invoice", chat_id, invoice)
     }
 
     /// Answer a pre-checkout query (approve or decline).
@@ -197,26 +195,19 @@ pub trait BotApi: Send + Sync + 'static {
         ok: bool,
         error_message: Option<String>,
     ) -> Result<(), ApiError> {
-        let _ = (id, ok, error_message);
-        Err(ApiError::Unknown(
-            "answer_pre_checkout_query not implemented".into(),
-        ))
+        not_implemented!("answer_pre_checkout_query", id, ok, error_message)
     }
 
     // ─── Chat Administration ───
 
     /// Ban a user from a chat.
     async fn ban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id);
-        Err(ApiError::Unknown("ban_chat_member not implemented".into()))
+        not_implemented!("ban_chat_member", chat_id, user_id)
     }
 
     /// Unban a previously banned user.
     async fn unban_chat_member(&self, chat_id: ChatId, user_id: UserId) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id);
-        Err(ApiError::Unknown(
-            "unban_chat_member not implemented".into(),
-        ))
+        not_implemented!("unban_chat_member", chat_id, user_id)
     }
 
     /// Restrict a user (set permissions).
@@ -226,10 +217,7 @@ pub trait BotApi: Send + Sync + 'static {
         user_id: UserId,
         permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id, permissions);
-        Err(ApiError::Unknown(
-            "restrict_chat_member not implemented".into(),
-        ))
+        not_implemented!("restrict_chat_member", chat_id, user_id, permissions)
     }
 
     /// Promote a user to admin.
@@ -239,10 +227,7 @@ pub trait BotApi: Send + Sync + 'static {
         user_id: UserId,
         permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id, permissions);
-        Err(ApiError::Unknown(
-            "promote_chat_member not implemented".into(),
-        ))
+        not_implemented!("promote_chat_member", chat_id, user_id, permissions)
     }
 
     /// Get info about a chat member.
@@ -251,28 +236,22 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         user_id: UserId,
     ) -> Result<ChatMember, ApiError> {
-        let _ = (chat_id, user_id);
-        Err(ApiError::Unknown("get_chat_member not implemented".into()))
+        not_implemented!("get_chat_member", chat_id, user_id)
     }
 
     /// Get the number of members in a chat.
     async fn get_chat_member_count(&self, chat_id: ChatId) -> Result<i32, ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "get_chat_member_count not implemented".into(),
-        ))
+        not_implemented!("get_chat_member_count", chat_id)
     }
 
     /// Get chat info.
     async fn get_chat(&self, chat_id: ChatId) -> Result<ChatInfo, ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown("get_chat not implemented".into()))
+        not_implemented!("get_chat", chat_id)
     }
 
     /// Leave a chat.
     async fn leave_chat(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown("leave_chat not implemented".into()))
+        not_implemented!("leave_chat", chat_id)
     }
 
     /// Set chat permissions for all members.
@@ -281,30 +260,24 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         permissions: ChatPermissions,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, permissions);
-        Err(ApiError::Unknown(
-            "set_chat_permissions not implemented".into(),
-        ))
+        not_implemented!("set_chat_permissions", chat_id, permissions)
     }
 
     // ─── Bot Settings ───
 
     /// Set the bot's command list.
     async fn set_my_commands(&self, commands: Vec<BotCommand>) -> Result<(), ApiError> {
-        let _ = commands;
-        Err(ApiError::Unknown("set_my_commands not implemented".into()))
+        not_implemented!("set_my_commands", commands)
     }
 
     /// Delete the bot's command list.
     async fn delete_my_commands(&self) -> Result<(), ApiError> {
-        Err(ApiError::Unknown(
-            "delete_my_commands not implemented".into(),
-        ))
+        not_implemented!("delete_my_commands",)
     }
 
     /// Get bot info (id, username, etc).
     async fn get_me(&self) -> Result<BotInfo, ApiError> {
-        Err(ApiError::Unknown("get_me not implemented".into()))
+        not_implemented!("get_me",)
     }
 
     // ─── Reactions ───
@@ -316,10 +289,7 @@ pub trait BotApi: Send + Sync + 'static {
         message_id: MessageId,
         emoji: &str,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, message_id, emoji);
-        Err(ApiError::Unknown(
-            "set_message_reaction not implemented".into(),
-        ))
+        not_implemented!("set_message_reaction", chat_id, message_id, emoji)
     }
 
     // ─── Pinning ───
@@ -331,8 +301,7 @@ pub trait BotApi: Send + Sync + 'static {
         message_id: MessageId,
         silent: bool,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, message_id, silent);
-        Err(ApiError::Unknown("pin_chat_message not implemented".into()))
+        not_implemented!("pin_chat_message", chat_id, message_id, silent)
     }
 
     /// Unpin a message in a chat.
@@ -341,18 +310,12 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         message_id: MessageId,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, message_id);
-        Err(ApiError::Unknown(
-            "unpin_chat_message not implemented".into(),
-        ))
+        not_implemented!("unpin_chat_message", chat_id, message_id)
     }
 
     /// Unpin all messages in a chat.
     async fn unpin_all_chat_messages(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "unpin_all_chat_messages not implemented".into(),
-        ))
+        not_implemented!("unpin_all_chat_messages", chat_id)
     }
 
     // ─── Invite Links ───
@@ -365,18 +328,18 @@ pub trait BotApi: Send + Sync + 'static {
         expire_date: Option<i64>,
         member_limit: Option<i32>,
     ) -> Result<String, ApiError> {
-        let _ = (chat_id, name, expire_date, member_limit);
-        Err(ApiError::Unknown(
-            "create_chat_invite_link not implemented".into(),
-        ))
+        not_implemented!(
+            "create_chat_invite_link",
+            chat_id,
+            name,
+            expire_date,
+            member_limit
+        )
     }
 
     /// Export the primary chat invite link.
     async fn export_chat_invite_link(&self, chat_id: ChatId) -> Result<String, ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "export_chat_invite_link not implemented".into(),
-        ))
+        not_implemented!("export_chat_invite_link", chat_id)
     }
 
     /// Revoke a chat invite link.
@@ -385,10 +348,7 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         invite_link: &str,
     ) -> Result<ChatInviteLink, ApiError> {
-        let _ = (chat_id, invite_link);
-        Err(ApiError::Unknown(
-            "revoke_chat_invite_link not implemented".into(),
-        ))
+        not_implemented!("revoke_chat_invite_link", chat_id, invite_link)
     }
 
     // ─── Chat Join Requests ───
@@ -399,10 +359,7 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         user_id: UserId,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id);
-        Err(ApiError::Unknown(
-            "approve_chat_join_request not implemented".into(),
-        ))
+        not_implemented!("approve_chat_join_request", chat_id, user_id)
     }
 
     /// Decline a chat join request.
@@ -411,18 +368,14 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         user_id: UserId,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id);
-        Err(ApiError::Unknown(
-            "decline_chat_join_request not implemented".into(),
-        ))
+        not_implemented!("decline_chat_join_request", chat_id, user_id)
     }
 
     // ─── Chat Management ───
 
     /// Set the chat title.
     async fn set_chat_title(&self, chat_id: ChatId, title: &str) -> Result<(), ApiError> {
-        let _ = (chat_id, title);
-        Err(ApiError::Unknown("set_chat_title not implemented".into()))
+        not_implemented!("set_chat_title", chat_id, title)
     }
 
     /// Set the chat description.
@@ -431,32 +384,22 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         description: Option<&str>,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, description);
-        Err(ApiError::Unknown(
-            "set_chat_description not implemented".into(),
-        ))
+        not_implemented!("set_chat_description", chat_id, description)
     }
 
     /// Set the chat photo.
     async fn set_chat_photo(&self, chat_id: ChatId, photo: FileSource) -> Result<(), ApiError> {
-        let _ = (chat_id, photo);
-        Err(ApiError::Unknown("set_chat_photo not implemented".into()))
+        not_implemented!("set_chat_photo", chat_id, photo)
     }
 
     /// Delete the chat photo.
     async fn delete_chat_photo(&self, chat_id: ChatId) -> Result<(), ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "delete_chat_photo not implemented".into(),
-        ))
+        not_implemented!("delete_chat_photo", chat_id)
     }
 
     /// Get the list of chat administrators.
     async fn get_chat_administrators(&self, chat_id: ChatId) -> Result<Vec<ChatMember>, ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "get_chat_administrators not implemented".into(),
-        ))
+        not_implemented!("get_chat_administrators", chat_id)
     }
 
     /// Set a custom title for an admin in a supergroup.
@@ -466,10 +409,12 @@ pub trait BotApi: Send + Sync + 'static {
         user_id: UserId,
         custom_title: &str,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, user_id, custom_title);
-        Err(ApiError::Unknown(
-            "set_chat_administrator_custom_title not implemented".into(),
-        ))
+        not_implemented!(
+            "set_chat_administrator_custom_title",
+            chat_id,
+            user_id,
+            custom_title
+        )
     }
 
     // ─── User Info ───
@@ -481,17 +426,14 @@ pub trait BotApi: Send + Sync + 'static {
         offset: Option<i32>,
         limit: Option<i32>,
     ) -> Result<UserProfilePhotos, ApiError> {
-        let _ = (user_id, offset, limit);
-        Err(ApiError::Unknown(
-            "get_user_profile_photos not implemented".into(),
-        ))
+        not_implemented!("get_user_profile_photos", user_id, offset, limit)
     }
 
     // ─── Bot Settings (extended) ───
 
     /// Get the bot's command list.
     async fn get_my_commands(&self) -> Result<Vec<BotCommand>, ApiError> {
-        Err(ApiError::Unknown("get_my_commands not implemented".into()))
+        not_implemented!("get_my_commands",)
     }
 
     /// Set the bot's description.
@@ -500,10 +442,7 @@ pub trait BotApi: Send + Sync + 'static {
         description: Option<&str>,
         language_code: Option<&str>,
     ) -> Result<(), ApiError> {
-        let _ = (description, language_code);
-        Err(ApiError::Unknown(
-            "set_my_description not implemented".into(),
-        ))
+        not_implemented!("set_my_description", description, language_code)
     }
 
     /// Get the bot's description.
@@ -511,10 +450,7 @@ pub trait BotApi: Send + Sync + 'static {
         &self,
         language_code: Option<&str>,
     ) -> Result<BotDescription, ApiError> {
-        let _ = language_code;
-        Err(ApiError::Unknown(
-            "get_my_description not implemented".into(),
-        ))
+        not_implemented!("get_my_description", language_code)
     }
 
     /// Set the bot's short description.
@@ -523,10 +459,7 @@ pub trait BotApi: Send + Sync + 'static {
         short_description: Option<&str>,
         language_code: Option<&str>,
     ) -> Result<(), ApiError> {
-        let _ = (short_description, language_code);
-        Err(ApiError::Unknown(
-            "set_my_short_description not implemented".into(),
-        ))
+        not_implemented!("set_my_short_description", short_description, language_code)
     }
 
     /// Get the bot's short description.
@@ -534,10 +467,7 @@ pub trait BotApi: Send + Sync + 'static {
         &self,
         language_code: Option<&str>,
     ) -> Result<BotShortDescription, ApiError> {
-        let _ = language_code;
-        Err(ApiError::Unknown(
-            "get_my_short_description not implemented".into(),
-        ))
+        not_implemented!("get_my_short_description", language_code)
     }
 
     /// Set the bot's name.
@@ -546,14 +476,12 @@ pub trait BotApi: Send + Sync + 'static {
         name: Option<&str>,
         language_code: Option<&str>,
     ) -> Result<(), ApiError> {
-        let _ = (name, language_code);
-        Err(ApiError::Unknown("set_my_name not implemented".into()))
+        not_implemented!("set_my_name", name, language_code)
     }
 
     /// Get the bot's name.
     async fn get_my_name(&self, language_code: Option<&str>) -> Result<BotName, ApiError> {
-        let _ = language_code;
-        Err(ApiError::Unknown("get_my_name not implemented".into()))
+        not_implemented!("get_my_name", language_code)
     }
 
     // ─── Menu Button ───
@@ -564,18 +492,12 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: Option<ChatId>,
         menu_button: MenuButton,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, menu_button);
-        Err(ApiError::Unknown(
-            "set_chat_menu_button not implemented".into(),
-        ))
+        not_implemented!("set_chat_menu_button", chat_id, menu_button)
     }
 
     /// Get the bot's menu button for a specific chat or default.
     async fn get_chat_menu_button(&self, chat_id: Option<ChatId>) -> Result<MenuButton, ApiError> {
-        let _ = chat_id;
-        Err(ApiError::Unknown(
-            "get_chat_menu_button not implemented".into(),
-        ))
+        not_implemented!("get_chat_menu_button", chat_id)
     }
 
     // ─── Payments (extended) ───
@@ -588,18 +510,18 @@ pub trait BotApi: Send + Sync + 'static {
         shipping_options: Option<Vec<ShippingOption>>,
         error_message: Option<String>,
     ) -> Result<(), ApiError> {
-        let _ = (shipping_query_id, ok, shipping_options, error_message);
-        Err(ApiError::Unknown(
-            "answer_shipping_query not implemented".into(),
-        ))
+        not_implemented!(
+            "answer_shipping_query",
+            shipping_query_id,
+            ok,
+            shipping_options,
+            error_message
+        )
     }
 
     /// Create an invoice link for payments without sending a message.
     async fn create_invoice_link(&self, invoice: Invoice) -> Result<String, ApiError> {
-        let _ = invoice;
-        Err(ApiError::Unknown(
-            "create_invoice_link not implemented".into(),
-        ))
+        not_implemented!("create_invoice_link", invoice)
     }
 
     // ─── Batch Operations ───
@@ -611,8 +533,7 @@ pub trait BotApi: Send + Sync + 'static {
         from_chat_id: ChatId,
         message_ids: Vec<MessageId>,
     ) -> Result<Vec<MessageId>, ApiError> {
-        let _ = (chat_id, from_chat_id, message_ids);
-        Err(ApiError::Unknown("forward_messages not implemented".into()))
+        not_implemented!("forward_messages", chat_id, from_chat_id, message_ids)
     }
 
     /// Copy multiple messages at once.
@@ -622,8 +543,7 @@ pub trait BotApi: Send + Sync + 'static {
         from_chat_id: ChatId,
         message_ids: Vec<MessageId>,
     ) -> Result<Vec<MessageId>, ApiError> {
-        let _ = (chat_id, from_chat_id, message_ids);
-        Err(ApiError::Unknown("copy_messages not implemented".into()))
+        not_implemented!("copy_messages", chat_id, from_chat_id, message_ids)
     }
 
     // ─── Sticker ───
@@ -634,8 +554,7 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         sticker: FileSource,
     ) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, sticker);
-        Err(ApiError::Unknown("send_sticker not implemented".into()))
+        not_implemented!("send_sticker", chat_id, sticker)
     }
 
     // ─── Location ───
@@ -647,8 +566,7 @@ pub trait BotApi: Send + Sync + 'static {
         latitude: f64,
         longitude: f64,
     ) -> Result<SentMessage, ApiError> {
-        let _ = (chat_id, latitude, longitude);
-        Err(ApiError::Unknown("send_location not implemented".into()))
+        not_implemented!("send_location", chat_id, latitude, longitude)
     }
 
     // ─── Forum Topics ───
@@ -661,10 +579,13 @@ pub trait BotApi: Send + Sync + 'static {
         icon_color: Option<i32>,
         icon_custom_emoji_id: Option<i64>,
     ) -> Result<ForumTopic, ApiError> {
-        let _ = (chat_id, title, icon_color, icon_custom_emoji_id);
-        Err(ApiError::Unknown(
-            "create_forum_topic not implemented".into(),
-        ))
+        not_implemented!(
+            "create_forum_topic",
+            chat_id,
+            title,
+            icon_color,
+            icon_custom_emoji_id
+        )
     }
 
     /// Edit a forum topic (title, icon, open/close, hide/show).
@@ -677,15 +598,15 @@ pub trait BotApi: Send + Sync + 'static {
         closed: Option<bool>,
         hidden: Option<bool>,
     ) -> Result<(), ApiError> {
-        let _ = (
+        not_implemented!(
+            "edit_forum_topic",
             chat_id,
             topic_id,
             title,
             icon_custom_emoji_id,
             closed,
-            hidden,
-        );
-        Err(ApiError::Unknown("edit_forum_topic not implemented".into()))
+            hidden
+        )
     }
 
     /// Close a forum topic.
@@ -702,10 +623,7 @@ pub trait BotApi: Send + Sync + 'static {
 
     /// Delete a forum topic and all its messages.
     async fn delete_forum_topic(&self, chat_id: ChatId, topic_id: i32) -> Result<(), ApiError> {
-        let _ = (chat_id, topic_id);
-        Err(ApiError::Unknown(
-            "delete_forum_topic not implemented".into(),
-        ))
+        not_implemented!("delete_forum_topic", chat_id, topic_id)
     }
 
     /// Unpin all messages in a forum topic.
@@ -714,10 +632,7 @@ pub trait BotApi: Send + Sync + 'static {
         chat_id: ChatId,
         topic_id: i32,
     ) -> Result<(), ApiError> {
-        let _ = (chat_id, topic_id);
-        Err(ApiError::Unknown(
-            "unpin_all_forum_topic_messages not implemented".into(),
-        ))
+        not_implemented!("unpin_all_forum_topic_messages", chat_id, topic_id)
     }
 
     /// Hide the 'General' topic in a forum supergroup.
@@ -741,17 +656,11 @@ pub trait BotApi: Send + Sync + 'static {
         offset: Option<&str>,
         limit: Option<i32>,
     ) -> Result<StarTransactions, ApiError> {
-        let _ = (offset, limit);
-        Err(ApiError::Unknown(
-            "get_star_transactions not implemented".into(),
-        ))
+        not_implemented!("get_star_transactions", offset, limit)
     }
 
     /// Refund a star payment by charge_id.
     async fn refund_star_payment(&self, user_id: UserId, charge_id: &str) -> Result<(), ApiError> {
-        let _ = (user_id, charge_id);
-        Err(ApiError::Unknown(
-            "refund_star_payment not implemented".into(),
-        ))
+        not_implemented!("refund_star_payment", user_id, charge_id)
     }
 }

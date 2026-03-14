@@ -449,3 +449,677 @@ impl Default for Router {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bot_api::BotApi;
+    use crate::mock::MockBotApi;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn test_user() -> UserInfo {
+        UserInfo {
+            id: UserId(1),
+            first_name: "Test".into(),
+            last_name: None,
+            username: None,
+            language_code: Some("en".into()),
+        }
+    }
+
+    fn make_ctx() -> Ctx {
+        let state = ChatState::new(ChatId(1), test_user());
+        let bot: Arc<dyn BotApi> = Arc::new(MockBotApi::new());
+        Ctx::new(state, bot, None)
+    }
+
+    fn make_update_text(text: &str) -> IncomingUpdate {
+        IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: Some(MessageId(100)),
+            kind: UpdateKind::Message {
+                text: Some(text.to_string()),
+            },
+        }
+    }
+
+    fn make_update_callback(data: &str) -> IncomingUpdate {
+        IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: Some(MessageId(100)),
+            kind: UpdateKind::CallbackQuery {
+                id: "cb_1".into(),
+                data: Some(data.to_string()),
+                inline_message_id: None,
+            },
+        }
+    }
+
+    fn make_update_photo() -> IncomingUpdate {
+        IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: Some(MessageId(100)),
+            kind: UpdateKind::Photo {
+                file_id: "photo_123".into(),
+                file_unique_id: "uniq_123".into(),
+                caption: None,
+            },
+        }
+    }
+
+    /// Shared flag for tracking whether a handler was invoked.
+    fn handler_flag() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
+    // ─── Command registration & dispatch ───
+
+    #[tokio::test]
+    async fn command_dispatch_start() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.command("start", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/start");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(
+            called.load(Ordering::SeqCst),
+            "handler should have been called"
+        );
+    }
+
+    #[tokio::test]
+    async fn command_strips_slash_and_lowercases() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.command("/Help", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/HELP");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn command_strips_bot_mention() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.command("start", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/start@MyBot");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn command_with_args_dispatches() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.command("start", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/start deep_link_payload");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ─── Callback routing ───
+
+    #[tokio::test]
+    async fn callback_exact_match() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.callback("action", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_callback("action");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn callback_prefix_match_with_colon() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.callback("action", move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_callback("action:view:42");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn callback_longest_prefix_wins() {
+        let short = handler_flag();
+        let long = handler_flag();
+        let short2 = short.clone();
+        let long2 = long.clone();
+
+        let mut router = Router::new();
+        router.callback("a", move |_ctx: &mut Ctx| {
+            let c = short2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        router.callback("a:b", move |_ctx: &mut Ctx| {
+            let c = long2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        let mut ctx = make_ctx();
+        // "a:b:c" should match "a:b" (longest prefix), not "a"
+        let update = make_update_callback("a:b:c");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(long.load(Ordering::SeqCst), "longer prefix should match");
+        assert!(
+            !short.load(Ordering::SeqCst),
+            "shorter prefix should NOT match"
+        );
+    }
+
+    #[tokio::test]
+    async fn callback_no_match_is_ok() {
+        let router = Router::new();
+        let mut ctx = make_ctx();
+        let update = make_update_callback("unknown:action");
+        let result = router.route(&mut ctx, &update).await;
+        assert!(result.is_ok(), "unmatched callback should not error");
+    }
+
+    #[tokio::test]
+    async fn callback_sets_callback_data_on_ctx() {
+        let mut router = Router::new();
+        router.callback("pick", move |ctx: &mut Ctx| {
+            Box::pin(async move {
+                assert_eq!(ctx.callback_data(), Some("pick:dark"));
+                assert_eq!(ctx.callback_params(), vec!["dark"]);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_callback("pick:dark");
+        router.route(&mut ctx, &update).await.unwrap();
+    }
+
+    // ─── Text input routing ───
+
+    #[tokio::test]
+    async fn text_input_for_current_screen() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_input("ask_name", move |_ctx: &mut Ctx, text: String| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(text, "Alice");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("ask_name".to_string());
+        let update = make_update_text("Alice");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn text_input_wrong_screen_goes_to_unrecognized() {
+        let input_called = handler_flag();
+        let input_called2 = input_called.clone();
+        let mut router = Router::new();
+        router.on_input("ask_name", move |_ctx: &mut Ctx, _text: String| {
+            let c = input_called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        router.delete_unrecognized = false;
+
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("other_screen".to_string());
+        let update = make_update_text("Alice");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(
+            !input_called.load(Ordering::SeqCst),
+            "input handler should NOT run for wrong screen"
+        );
+    }
+
+    // ─── Any-text handler ───
+
+    #[tokio::test]
+    async fn any_text_handler_catches_non_command() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_any_text(move |_ctx: &mut Ctx, text: String| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(text, "hello world");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("hello world");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn screen_input_takes_priority_over_any_text() {
+        let input_called = handler_flag();
+        let any_called = handler_flag();
+        let input2 = input_called.clone();
+        let any2 = any_called.clone();
+
+        let mut router = Router::new();
+        router.on_input("ask", move |_ctx: &mut Ctx, _text: String| {
+            let c = input2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        router.on_any_text(move |_ctx: &mut Ctx, _text: String| {
+            let c = any2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("ask".to_string());
+        let update = make_update_text("some text");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(
+            input_called.load(Ordering::SeqCst),
+            "screen input should win"
+        );
+        assert!(
+            !any_called.load(Ordering::SeqCst),
+            "any_text should NOT be called"
+        );
+    }
+
+    // ─── Unrecognized ───
+
+    #[tokio::test]
+    async fn unrecognized_handler_called_for_no_match() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_unrecognized(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("random text");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn delete_unrecognized_removes_from_pending() {
+        let router = Router::new(); // delete_unrecognized = true by default
+        let mut ctx = make_ctx();
+        let update = make_update_text("random junk");
+        router.route(&mut ctx, &update).await.unwrap();
+        // delete_unrecognized calls delete_now and removes from pending
+        assert!(
+            !ctx.state.pending_user_messages.contains(&MessageId(100)),
+            "deleted message should be removed from pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_unrecognized_false_keeps_message() {
+        let mut router = Router::new();
+        router.delete_unrecognized = false;
+        let mut ctx = make_ctx();
+        let update = make_update_text("random text");
+        router.route(&mut ctx, &update).await.unwrap();
+        // With delete_unrecognized=false, message stays in pending
+        assert!(
+            ctx.state.pending_user_messages.contains(&MessageId(100)),
+            "message should remain in pending when flag is false"
+        );
+    }
+
+    // ─── Media input routing ───
+
+    #[tokio::test]
+    async fn media_input_dispatches_for_screen() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_media_input("upload", move |_ctx: &mut Ctx, media: ReceivedMedia| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(media.file_id, "photo_123");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("upload".to_string());
+        let update = make_update_photo();
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn media_input_wrong_screen_goes_to_unrecognized() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_media_input("upload", move |_ctx: &mut Ctx, _media: ReceivedMedia| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        router.delete_unrecognized = false;
+
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("other".to_string());
+        let update = make_update_photo();
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(!called.load(Ordering::SeqCst));
+    }
+
+    // ─── Message pending tracking ───
+
+    #[tokio::test]
+    async fn message_id_pushed_to_pending() {
+        let mut router = Router::new();
+        router.delete_unrecognized = false;
+        let mut ctx = make_ctx();
+        let update = make_update_text("hello");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(ctx.state.pending_user_messages.contains(&MessageId(100)));
+    }
+
+    // ─── Inline dispatch ───
+
+    #[tokio::test]
+    async fn inline_dispatch_calls_handler() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_inline(move |_ctx: &mut Ctx, query: String, _offset: String| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(query, "search term");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        router
+            .dispatch_inline(&mut ctx, "search term".into(), "".into())
+            .await
+            .unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn inline_dispatch_no_handler_is_ok() {
+        let router = Router::new();
+        let mut ctx = make_ctx();
+        let result = router
+            .dispatch_inline(&mut ctx, "q".into(), "".into())
+            .await;
+        assert!(result.is_ok());
+    }
+
+    // ─── Member joined/left ───
+
+    #[tokio::test]
+    async fn member_joined_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_member_joined(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::ChatMemberJoined,
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn member_left_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_member_left(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::ChatMemberLeft,
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ─── Pre-checkout / payment ───
+
+    #[tokio::test]
+    async fn pre_checkout_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_pre_checkout(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::PreCheckoutQuery {
+                id: "pq_1".into(),
+                currency: "XTR".into(),
+                total_amount: 100,
+                payload: "test".into(),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn successful_payment_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_successful_payment(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::SuccessfulPayment {
+                currency: "XTR".into(),
+                total_amount: 100,
+                payload: "test".into(),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ─── Message edited ───
+
+    #[tokio::test]
+    async fn message_edited_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_message_edited(move |_ctx: &mut Ctx, text: String| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(text, "edited text");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: Some(MessageId(100)),
+            kind: UpdateKind::MessageEdited {
+                text: Some("edited text".into()),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ─── Chosen inline result ───
+
+    #[tokio::test]
+    async fn chosen_inline_result_dispatch() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_chosen_inline(move |_ctx: &mut Ctx| {
+            let c = called2.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::ChosenInlineResult {
+                result_id: "r_1".into(),
+                inline_message_id: Some("im_1".into()),
+                query: "q".into(),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+        assert_eq!(
+            ctx.mode,
+            CtxMode::Inline {
+                inline_message_id: "im_1".into()
+            }
+        );
+    }
+
+    // ─── Default (no handler) ───
+
+    #[tokio::test]
+    async fn default_router_handles_all_update_kinds_without_panic() {
+        let router = Router::new();
+        let kinds = vec![
+            UpdateKind::ChatMemberJoined,
+            UpdateKind::ChatMemberLeft,
+            UpdateKind::MessageEdited { text: None },
+            UpdateKind::WebAppData {
+                data: "test".into(),
+            },
+        ];
+        for kind in kinds {
+            let mut ctx = make_ctx();
+            let update = IncomingUpdate {
+                chat_id: ChatId(1),
+                user: test_user(),
+                message_id: None,
+                kind,
+            };
+            router.route(&mut ctx, &update).await.unwrap();
+        }
+    }
+}

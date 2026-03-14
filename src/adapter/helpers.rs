@@ -2,15 +2,18 @@
 
 use grammers_client::tl;
 
+use super::GrammersAdapter;
 use crate::error::ApiError;
 use crate::types::*;
-use super::GrammersAdapter;
 
 // ─── User / peer resolution ───
 
 impl GrammersAdapter {
     /// Resolve a `UserId` to an `InputPeer` for admin operations.
-    pub(super) fn resolve_user_peer(&self, user_id: UserId) -> Result<tl::enums::InputPeer, ApiError> {
+    pub(super) fn resolve_user_peer(
+        &self,
+        user_id: UserId,
+    ) -> Result<tl::enums::InputPeer, ApiError> {
         let resolved = self.resolve(ChatId(user_id.0 as i64))?;
         Ok(tl::types::InputPeerUser {
             user_id: resolved.id.bare_id(),
@@ -20,7 +23,10 @@ impl GrammersAdapter {
     }
 
     /// Resolve a `UserId` to an `InputUser` for admin operations.
-    pub(super) fn resolve_input_user(&self, user_id: UserId) -> Result<tl::enums::InputUser, ApiError> {
+    pub(super) fn resolve_input_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<tl::enums::InputUser, ApiError> {
         let resolved = self.resolve(ChatId(user_id.0 as i64))?;
         Ok(tl::types::InputUser {
             user_id: resolved.id.bare_id(),
@@ -92,7 +98,11 @@ pub(super) fn permissions_to_banned_rights(
         change_info: no_info,
         invite_users: no_invite,
         pin_messages: no_pin,
-        manage_topics: if manage_topics_from_pin { no_pin } else { false },
+        manage_topics: if manage_topics_from_pin {
+            no_pin
+        } else {
+            false
+        },
         send_photos: no_media,
         send_videos: no_media,
         send_roundvideos: no_media,

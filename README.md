@@ -176,6 +176,7 @@ Form::builder("signup")
         ctx.navigate(Screen::text("done", "Welcome aboard.").build()).await
     }))
     .build()
+    .unwrap()
 ```
 
 Bad input auto-deleted, error shown as 3 s toast, cancel button built-in.
@@ -293,19 +294,30 @@ App::builder("TOKEN")
 Full test harness with `MockBotApi` — no network, no tokens:
 
 ```rust,ignore
+use blazegram::{handler, prelude::*};
+use blazegram::testing::TestApp;
+
+fn make_router() -> Router {
+    let mut r = Router::new();
+    r.command("start", handler!(ctx => {
+        ctx.navigate(Screen::text("home", "Pick a side.").build()).await
+    }));
+    r
+}
+
 #[tokio::test]
 async fn test_start() {
-    let app = TestApp::new();
-    let reply = app.send_command("/start").await;
-    assert!(reply.text.contains("Pick a side"));
+    let app = TestApp::new(make_router());
+    app.send_message(100, "/start").await.unwrap();
+    let msgs = app.sent_messages();
+    assert!(msgs.last().unwrap().text.contains("Pick a side"));
 }
 
 #[tokio::test]
 async fn test_callback() {
-    let app = TestApp::new();
-    app.send_command("/start").await;
-    let reply = app.press_button("pick:dark").await;
-    assert!(reply.text.contains("dark"));
+    let app = TestApp::new(make_router());
+    app.send_message(100, "/start").await.unwrap();
+    app.send_callback(100, "pick:dark").await.unwrap();
 }
 ```
 

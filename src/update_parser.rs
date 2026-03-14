@@ -506,3 +506,31 @@ fn non_empty(s: &str) -> Option<String> {
         Some(s.to_string())
     }
 }
+
+// Testing note: convert_update, convert_media, convert_service_message, and
+// user_from_grammers_user all depend on grammers TL types (Update, Message,
+// MessageService, User) whose constructors are not public. Building them from
+// raw bytes is fragile and ties tests to grammers internals. These paths are
+// covered indirectly via TestApp integration tests in testing.rs. The only
+// pure function here — `non_empty` — is trivial but tested below for
+// completeness.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_empty_returns_none_for_empty() {
+        assert_eq!(non_empty(""), None);
+    }
+
+    #[test]
+    fn non_empty_returns_some_for_text() {
+        assert_eq!(non_empty("hello"), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn non_empty_returns_some_for_whitespace() {
+        assert_eq!(non_empty(" "), Some(" ".to_string()));
+    }
+}

@@ -653,23 +653,34 @@ impl Ctx {
         Ok(())
     }
 
-    /// Direct access to the raw grammers Client for any MTProto method.
+    /// Direct access to the raw [grammers `Client`](grammers_client::Client)
+    /// for any MTProto method not wrapped by [`BotApi`].
+    ///
+    /// Returns `None` in tests (where no real connection exists) and when
+    /// running with a non-grammers adapter.
+    #[must_use]
     pub fn client(&self) -> Option<&grammers_client::Client> {
         self.grammers_client.as_ref()
     }
 
-    /// Get the PeerRef for this chat (for raw TL calls).
+    /// The resolved peer reference for this chat, needed for raw TL calls.
+    ///
+    /// Returns `None` in tests, or if the peer hasn't been cached yet
+    /// (extremely rare — the adapter caches on first message).
+    #[must_use]
     pub fn peer_ref(&self) -> Option<grammers_session::types::PeerRef> {
         let cache = self.peer_cache.as_ref()?;
         crate::grammers_adapter::GrammersAdapter::resolve_from_cache(cache, self.chat_id)
     }
 
+    /// Unwraps [`client()`](Self::client), returning an error if unavailable.
     fn require_client(&self) -> Result<&grammers_client::Client, HandlerError> {
         self.grammers_client.as_ref().ok_or_else(|| {
             HandlerError::Internal(anyhow::anyhow!("operation requires grammers client"))
         })
     }
 
+    /// Unwraps [`peer_ref()`](Self::peer_ref), returning `ApiError::ChatNotFound` if unavailable.
     fn require_peer(&self) -> Result<grammers_session::types::PeerRef, HandlerError> {
         self.peer_ref()
             .ok_or_else(|| HandlerError::Api(crate::error::ApiError::ChatNotFound))
@@ -793,6 +804,7 @@ impl Ctx {
     // ─── Callback Data ───
 
     /// Raw callback data string from the pressed inline button, if any.
+    #[must_use]
     pub fn callback_data(&self) -> Option<&str> {
         self.callback_data.as_deref()
     }
@@ -800,6 +812,7 @@ impl Ctx {
     /// Callback data split by `:`, skipping the first segment (the action name).
     ///
     /// For callback data `"pick:a:b"`, returns `["a", "b"]`.
+    #[must_use]
     pub fn callback_params(&self) -> Vec<String> {
         self.callback_data
             .as_ref()
@@ -810,11 +823,13 @@ impl Ctx {
     /// First callback parameter (second segment after `:`), if any.
     ///
     /// For callback data `"pick:dark"`, returns `Some("dark")`.
+    #[must_use]
     pub fn callback_param(&self) -> Option<String> {
         self.callback_params().into_iter().next()
     }
 
     /// First callback parameter parsed as type `T`. Returns `None` on missing or parse failure.
+    #[must_use]
     pub fn callback_param_as<T: std::str::FromStr>(&self) -> Option<T> {
         self.callback_param()?.parse().ok()
     }
@@ -1005,61 +1020,100 @@ impl Ctx {
     }
 
     /// The deep link parameter from `/start <payload>`, if present.
+    ///
+    /// Only populated when the incoming message is a `/start` command with
+    /// a payload (e.g. `/start ref_123` → `Some("ref_123")`). Returns `None`
+    /// for plain `/start` or any other command/message.
+    #[must_use]
     pub fn deep_link(&self) -> Option<&str> {
         self.deep_link.as_deref()
     }
 
-    /// The ID of the screen currently displayed to this user.
+    /// The [`ScreenId`] currently displayed to this user.
+    ///
+    /// Starts as `"__initial__"` before the first [`navigate()`](Self::navigate) call.
+    /// Used internally by the router to select screen-specific input handlers.
+    #[must_use]
     pub fn current_screen(&self) -> &ScreenId {
         &self.state.current_screen
     }
 
-    /// Access the underlying [`BotApi`] implementation (useful for direct API calls in tests).
+    /// Access the underlying [`BotApi`] implementation.
+    ///
+    /// Useful for calling methods not wrapped by `Ctx` (e.g. `edit_message_text`,
+    /// `get_chat_member_count`). In tests, this returns the [`MockBotApi`](crate::mock::MockBotApi).
+    #[must_use]
     pub fn bot(&self) -> &dyn BotApi {
         self.bot.as_ref()
     }
 
-    /// Text from the incoming message, if any. Includes the full text (e.g. `/start payload`).
+    /// Full text of the incoming message, if any.
+    ///
+    /// Includes the command itself (e.g. `/start payload`). For callback queries,
+    /// this is `None` — use [`callback_data()`](Self::callback_data) instead.
+    #[must_use]
     pub fn text(&self) -> Option<&str> {
         self.message_text.as_deref()
     }
 
-    /// Inline query ID (for answer_inline).
+    /// The inline query ID, present only in [`on_inline`](crate::app::AppBuilder::on_inline)
+    /// handlers. Use with [`answer_inline()`](Self::answer_inline) to send results.
+    #[must_use]
     pub fn inline_query_id(&self) -> Option<&str> {
         self.inline_query_id.as_deref()
     }
 
-    /// Chosen inline result ID (for on_chosen_inline handler).
+    /// The chosen result ID, present only in
+    /// [`on_chosen_inline`](crate::app::AppBuilder::on_chosen_inline) handlers.
+    /// This is the `result_id` the user selected from the inline results list.
+    #[must_use]
     pub fn chosen_inline_result_id(&self) -> Option<&str> {
         self.chosen_inline_result_id.as_deref()
     }
 
     /// ID of the incoming message that triggered this handler.
+    ///
+    /// Present for text messages, media, and edits. `None` for callback queries,
+    /// inline queries, payment events, and member join/leave events.
+    #[must_use]
     pub fn message_id(&self) -> Option<MessageId> {
         self.incoming_message_id
     }
 
-    /// ID of the last message sent via `reply()`, if any.
+    /// ID of the last message sent via [`reply()`](Self::reply), if any.
+    ///
+    /// Useful for later editing or referencing the bot's reply message.
+    #[must_use]
     pub fn reply_message_id(&self) -> Option<MessageId> {
         self.state.reply_message_id
     }
 
-    /// Pre-checkout query ID (for payment handlers).
+    /// Pre-checkout query ID, present only in
+    /// [`on_pre_checkout`](crate::app::AppBuilder::on_pre_checkout) handlers.
+    /// Use with [`approve_checkout()`](Self::approve_checkout) or
+    /// [`decline_checkout()`](Self::decline_checkout).
+    #[must_use]
     pub fn pre_checkout_id(&self) -> Option<&str> {
         self.payment.query_id.as_deref()
     }
 
-    /// Payment payload string.
+    /// The `payload` string from the invoice, present in payment handlers.
+    /// Use to identify what the user is paying for.
+    #[must_use]
     pub fn payment_payload(&self) -> Option<&str> {
         self.payment.payload.as_deref()
     }
 
-    /// Payment currency code (e.g. "USD").
+    /// Three-letter ISO 4217 currency code (e.g. `"USD"`, `"XTR"` for Stars).
+    /// Present in both pre-checkout and successful-payment handlers.
+    #[must_use]
     pub fn payment_currency(&self) -> Option<&str> {
         self.payment.currency.as_deref()
     }
 
-    /// Payment total amount in smallest units.
+    /// Payment total amount in the smallest currency unit (e.g. cents for USD,
+    /// stars for `XTR`). Present in payment handlers.
+    #[must_use]
     pub fn payment_total_amount(&self) -> Option<i64> {
         self.payment.total_amount
     }
@@ -1122,6 +1176,7 @@ impl Ctx {
     // ─── I18n ───
 
     /// User's language code, or the I18n default if not set.
+    #[must_use]
     pub fn lang(&self) -> &str {
         self.user
             .language_code

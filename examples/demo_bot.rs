@@ -54,7 +54,7 @@ async fn main() {
         .callback("about", handler!(ctx => {
             ctx.navigate(
                 Screen::text("about", "\
-                    <b>Blazegram v0.3.0</b>\n\n\
+                    <b>Blazegram v0.4.1</b>\n\n\
                     Pure Rust MTProto (grammers)\n\
                     Direct TCP to Telegram DC\n\
                     Zero HTTP, zero external processes\n\

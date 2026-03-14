@@ -177,7 +177,7 @@ fn add_dismiss_button(content: MessageContent, text: &str, callback: &str) -> Me
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ParseMode, LinkPreview};
+    use crate::types::{LinkPreview, ParseMode};
 
     #[test]
     fn add_dismiss_to_text() {
