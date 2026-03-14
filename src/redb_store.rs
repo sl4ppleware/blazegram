@@ -57,92 +57,90 @@ impl RedbStore {
 
 #[async_trait]
 impl StateStore for RedbStore {
-    async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
+    async fn load(&self, chat_id: ChatId) -> Result<Option<ChatState>, String> {
         let db = self.db.clone();
         let id = chat_id.0;
         tokio::task::spawn_blocking(move || {
-            let txn = db.begin_read().ok()?;
-            let table = txn.open_table(STATE_TABLE).ok()?;
-            let guard = table.get(id).ok()??;
-            match serde_json::from_slice(guard.value()) {
-                Ok(state) => Some(state),
-                Err(e) => {
-                    tracing::warn!(chat_id = id, error = %e, "corrupt state in redb — treating as fresh");
-                    None
-                }
+            let txn = db.begin_read().map_err(|e| format!("redb read txn: {e}"))?;
+            let table = txn
+                .open_table(STATE_TABLE)
+                .map_err(|e| format!("redb open table: {e}"))?;
+            match table.get(id).map_err(|e| format!("redb get: {e}"))? {
+                Some(guard) => match serde_json::from_slice(guard.value()) {
+                    Ok(state) => Ok(Some(state)),
+                    Err(e) => {
+                        tracing::warn!(chat_id = id, error = %e, "corrupt state in redb — treating as fresh");
+                        Ok(None)
+                    }
+                },
+                None => Ok(None),
             }
         })
         .await
-        .ok()
-        .flatten()
+        .map_err(|e| format!("redb spawn_blocking: {e}"))?
     }
 
-    async fn save(&self, state: &ChatState) {
+    async fn save(&self, state: &ChatState) -> Result<(), String> {
         let db = self.db.clone();
-        let bytes = match serde_json::to_vec(state) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to serialize state");
-                return;
-            }
-        };
+        let bytes = serde_json::to_vec(state).map_err(|e| format!("serialize: {e}"))?;
         let chat_id = state.chat_id.0;
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            let txn = db.begin_write()?;
+        tokio::task::spawn_blocking(move || {
+            let txn = db
+                .begin_write()
+                .map_err(|e| format!("redb write txn: {e}"))?;
             {
-                let mut table = txn.open_table(STATE_TABLE)?;
-                table.insert(chat_id, bytes.as_slice())?;
+                let mut table = txn
+                    .open_table(STATE_TABLE)
+                    .map_err(|e| format!("redb open table: {e}"))?;
+                table
+                    .insert(chat_id, bytes.as_slice())
+                    .map_err(|e| format!("redb insert: {e}"))?;
             }
-            txn.commit()?;
-            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            txn.commit().map_err(|e| format!("redb commit: {e}"))?;
+            Ok(())
         })
         .await
-        .unwrap_or_else(|e| Err(e.into()))
-        {
-            tracing::error!(chat_id, error = %e, "failed to save state to redb");
-        }
+        .map_err(|e| format!("redb spawn_blocking: {e}"))?
     }
 
-    async fn delete(&self, chat_id: ChatId) {
+    async fn delete(&self, chat_id: ChatId) -> Result<(), String> {
         let db = self.db.clone();
         let id = chat_id.0;
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            let txn = db.begin_write()?;
+        tokio::task::spawn_blocking(move || {
+            let txn = db
+                .begin_write()
+                .map_err(|e| format!("redb write txn: {e}"))?;
             {
-                let mut table = txn.open_table(STATE_TABLE)?;
-                table.remove(id)?;
+                let mut table = txn
+                    .open_table(STATE_TABLE)
+                    .map_err(|e| format!("redb open table: {e}"))?;
+                table.remove(id).map_err(|e| format!("redb remove: {e}"))?;
             }
-            txn.commit()?;
-            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            txn.commit().map_err(|e| format!("redb commit: {e}"))?;
+            Ok(())
         })
         .await
-        .unwrap_or_else(|e| Err(e.into()))
-        {
-            tracing::error!(chat_id = id, error = %e, "failed to delete state from redb");
-        }
+        .map_err(|e| format!("redb spawn_blocking: {e}"))?
     }
 
-    async fn all_chat_ids(&self) -> Vec<ChatId> {
+    async fn all_chat_ids(&self) -> Result<Vec<ChatId>, String> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
-            let txn = match db.begin_read() {
-                Ok(t) => t,
-                Err(_) => return Vec::new(),
-            };
-            let table = match txn.open_table(STATE_TABLE) {
-                Ok(t) => t,
-                Err(_) => return Vec::new(),
-            };
-            table
+            let txn = db.begin_read().map_err(|e| format!("redb read txn: {e}"))?;
+            let table = txn
+                .open_table(STATE_TABLE)
+                .map_err(|e| format!("redb open table: {e}"))?;
+            let ids: Vec<ChatId> = table
                 .iter()
                 .into_iter()
                 .flatten()
                 .filter_map(|r| r.ok())
                 .map(|(k, _)| ChatId(k.value()))
-                .collect()
+                .collect();
+            Ok(ids)
         })
         .await
-        .unwrap_or_default()
+        .map_err(|e| format!("redb spawn_blocking: {e}"))?
     }
 }
 
@@ -167,18 +165,18 @@ mod tests {
         let store = RedbStore::open(&path).unwrap();
 
         let chat_id = ChatId(42);
-        assert!(store.load(chat_id).await.is_none());
+        assert!(store.load(chat_id).await.unwrap().is_none());
 
         let mut state = ChatState::new(chat_id, test_user());
         state.data.insert("key".into(), serde_json::json!("value"));
-        store.save(&state).await;
+        store.save(&state).await.unwrap();
 
-        let loaded = store.load(chat_id).await.unwrap();
+        let loaded = store.load(chat_id).await.unwrap().unwrap();
         assert_eq!(loaded.chat_id, chat_id);
         assert_eq!(loaded.data["key"], "value");
 
-        store.delete(chat_id).await;
-        assert!(store.load(chat_id).await.is_none());
+        store.delete(chat_id).await.unwrap();
+        assert!(store.load(chat_id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -187,9 +185,18 @@ mod tests {
         let store = RedbStore::open(dir.path().join("ids.redb")).unwrap();
 
         for id in [1i64, 2, 3] {
-            store.save(&ChatState::new(ChatId(id), test_user())).await;
+            store
+                .save(&ChatState::new(ChatId(id), test_user()))
+                .await
+                .unwrap();
         }
-        let mut ids: Vec<i64> = store.all_chat_ids().await.iter().map(|c| c.0).collect();
+        let mut ids: Vec<i64> = store
+            .all_chat_ids()
+            .await
+            .unwrap()
+            .iter()
+            .map(|c| c.0)
+            .collect();
         ids.sort();
         assert_eq!(ids, vec![1, 2, 3]);
     }

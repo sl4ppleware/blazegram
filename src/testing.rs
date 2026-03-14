@@ -381,7 +381,77 @@ impl TestApp {
 
     /// Get current chat state.
     pub async fn state(&self, chat_id: i64) -> Option<ChatState> {
-        self.store.load(ChatId(chat_id)).await
+        self.store.load(ChatId(chat_id)).await.unwrap_or(None)
+    }
+
+    // ─── Assertion Helpers ───
+
+    /// Assert that the bot navigated to a specific screen.
+    pub async fn assert_screen(&self, chat_id: i64, screen_id: &str) {
+        let state = self.state(chat_id).await.expect("no state for chat");
+        assert_eq!(
+            state.current_screen,
+            ScreenId::from(screen_id.to_string()),
+            "expected screen '{}', got '{}'",
+            screen_id,
+            state.current_screen
+        );
+    }
+
+    /// Assert the last sent message contains the given text substring.
+    pub async fn assert_sent_text(&self, substring: &str) {
+        let msgs = self.sent_messages().await;
+        let found = msgs.iter().any(|(_, content)| match content {
+            MessageContent::Text { text, .. } => text.contains(substring),
+            _ => false,
+        });
+        assert!(
+            found,
+            "no sent message contains '{}'. Messages: {:?}",
+            substring,
+            msgs.iter()
+                .filter_map(|(_, c)| match c {
+                    MessageContent::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Assert a specific number of messages were sent.
+    pub async fn assert_sent_count(&self, count: usize) {
+        let actual = self.sent_count().await;
+        assert_eq!(
+            actual, count,
+            "expected {} sent messages, got {}",
+            count, actual
+        );
+    }
+
+    /// Assert no messages were sent.
+    pub async fn assert_no_messages(&self) {
+        let actual = self.sent_count().await;
+        assert_eq!(actual, 0, "expected no messages, got {}", actual);
+    }
+
+    /// Assert messages were deleted.
+    pub async fn assert_deleted(&self) {
+        let deleted = self.deleted_messages().await;
+        assert!(
+            !deleted.is_empty(),
+            "expected some messages to be deleted, none were"
+        );
+    }
+
+    /// Get the current screen ID from the chat state.
+    pub async fn current_screen(&self, chat_id: i64) -> String {
+        let state = self.state(chat_id).await.expect("no state for chat");
+        state.current_screen.to_string()
+    }
+
+    /// Simulate a scheduled callback firing (processes a synthetic callback update).
+    pub async fn fire_scheduled_callback(&self, chat_id: i64, data: &str) -> HandlerResult {
+        self.send_callback(chat_id, data).await
     }
 }
 
@@ -398,6 +468,8 @@ fn test_user() -> UserInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ctx::Ctx;
+    use crate::router::RouterGroup;
     use crate::screen::Screen;
 
     fn make_router() -> Router {
@@ -597,5 +669,93 @@ mod tests {
         app.send_callback(1, "counter:0").await.unwrap();
         let state = app.state(1).await.unwrap();
         assert_eq!(state.chat_id, ChatId(1));
+    }
+
+    // ─── Assertion helpers ───
+
+    #[tokio::test]
+    async fn test_assert_screen() {
+        let app = TestApp::new(make_router());
+        app.send_message(1, "/start").await.unwrap();
+        app.assert_screen(1, "home").await;
+    }
+
+    #[tokio::test]
+    async fn test_assert_sent_text() {
+        let app = TestApp::new(make_router());
+        app.send_message(1, "/start").await.unwrap();
+        app.assert_sent_text("Welcome!").await;
+    }
+
+    #[tokio::test]
+    async fn test_assert_sent_count() {
+        let app = TestApp::new(make_router());
+        app.send_message(1, "/start").await.unwrap();
+        app.assert_sent_count(1).await;
+    }
+
+    #[tokio::test]
+    async fn test_assert_no_messages() {
+        let app = TestApp::new(make_router());
+        app.assert_no_messages().await;
+    }
+
+    #[tokio::test]
+    async fn test_current_screen() {
+        let app = TestApp::new(make_router());
+        app.send_message(1, "/start").await.unwrap();
+        assert_eq!(app.current_screen(1).await, "home");
+    }
+
+    #[tokio::test]
+    async fn test_fire_scheduled_callback() {
+        let app = TestApp::new(make_router());
+        // fire_scheduled_callback just delegates to send_callback
+        app.send_message(1, "/start").await.unwrap();
+        let result = app.fire_scheduled_callback(1, "counter:5").await;
+        assert!(result.is_ok());
+    }
+
+    // ─── Router groups via TestApp ───
+
+    #[tokio::test]
+    async fn test_group_command_via_testapp() {
+        let mut router = Router::new();
+        router.group(RouterGroup::new().command("secret", |ctx: &mut Ctx| {
+            Box::pin(async move {
+                ctx.navigate(Screen::text("secret", "Secret page").build())
+                    .await
+            })
+        }));
+        router.command("start", |ctx: &mut Ctx| {
+            Box::pin(async move { ctx.navigate(Screen::text("home", "Home").build()).await })
+        });
+        let app = TestApp::new(router);
+        app.send_message(1, "/secret").await.unwrap();
+        app.assert_screen(1, "secret").await;
+        app.assert_sent_text("Secret page").await;
+    }
+
+    // ─── edit_last via TestApp ───
+
+    #[tokio::test]
+    async fn test_edit_last() {
+        let mut router = Router::new();
+        router.command("start", |ctx: &mut Ctx| {
+            Box::pin(async move { ctx.navigate(Screen::text("home", "Hello").build()).await })
+        });
+        router.callback("update", |ctx: &mut Ctx| {
+            Box::pin(async move {
+                ctx.edit_last(Screen::text("home", "Updated!").build())
+                    .await
+            })
+        });
+        let app = TestApp::new(router);
+        app.send_message(1, "/start").await.unwrap();
+        app.send_callback(1, "update").await.unwrap();
+        // edit should have happened
+        let edits = app.edits().await;
+        assert!(!edits.is_empty(), "should have at least one edit");
+        assert!(edits.iter().any(|(_, _, text)| text == "Updated!"));
     }
 }

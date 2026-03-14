@@ -17,13 +17,13 @@ const SNAPSHOT_MAGIC: &[u8; 4] = b"BG\x01\x00"; // "BG" + version 1.0
 #[async_trait]
 pub trait StateStore: Send + Sync + 'static {
     /// Load state for a chat, or `None` if unseen.
-    async fn load(&self, chat_id: ChatId) -> Option<ChatState>;
+    async fn load(&self, chat_id: ChatId) -> Result<Option<ChatState>, String>;
     /// Persist the current state.
-    async fn save(&self, state: &ChatState);
+    async fn save(&self, state: &ChatState) -> Result<(), String>;
     /// Delete all state for a chat.
-    async fn delete(&self, chat_id: ChatId);
+    async fn delete(&self, chat_id: ChatId) -> Result<(), String>;
     /// Return all chat IDs that have stored state (used by broadcast).
-    async fn all_chat_ids(&self) -> Vec<ChatId>;
+    async fn all_chat_ids(&self) -> Result<Vec<ChatId>, String>;
 }
 
 // ─── In-Memory Store ───
@@ -64,20 +64,22 @@ impl Default for InMemoryStore {
 
 #[async_trait]
 impl StateStore for InMemoryStore {
-    async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
-        self.states.get(&chat_id).map(|r| r.value().clone())
+    async fn load(&self, chat_id: ChatId) -> Result<Option<ChatState>, String> {
+        Ok(self.states.get(&chat_id).map(|r| r.value().clone()))
     }
 
-    async fn save(&self, state: &ChatState) {
+    async fn save(&self, state: &ChatState) -> Result<(), String> {
         self.states.insert(state.chat_id, state.clone());
+        Ok(())
     }
 
-    async fn delete(&self, chat_id: ChatId) {
+    async fn delete(&self, chat_id: ChatId) -> Result<(), String> {
         self.states.remove(&chat_id);
+        Ok(())
     }
 
-    async fn all_chat_ids(&self) -> Vec<ChatId> {
-        self.states.iter().map(|r| *r.key()).collect()
+    async fn all_chat_ids(&self) -> Result<Vec<ChatId>, String> {
+        Ok(self.states.iter().map(|r| *r.key()).collect())
     }
 }
 

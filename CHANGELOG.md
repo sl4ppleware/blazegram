@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.4.2] — 2026-03-14
+
+### Added
+
+- **State error handling**: `StateStore` trait methods now return `Result` instead of
+  silently swallowing errors. `InMemoryStore`, `RedbStore`, and `RedisStore` all updated.
+  `ChatSerializer` logs errors on load (falls back to fresh state) and save.
+  New `HandlerError::State` variant for state-related failures.
+
+- **`ctx.edit_last()`**: Edit the last bot message in place without running the differ.
+  Lighter than `navigate()` — no diff, no delete, just one edit call.
+
+- **Router groups**: `RouterGroup` allows organizing handlers into logical modules with
+  per-group middleware. Groups are checked before the main router. Added `Router::group()`
+  and `AppBuilder::group()`.
+
+- **Scheduler**: `SchedulerHandle` for time-delayed actions — auto-delete messages and
+  fire synthetic callbacks after a duration. `ctx.delete_later()` and
+  `ctx.schedule_callback()` methods. `notify_temp()` now uses the scheduler when available.
+  Scheduled callbacks are routed through the normal callback pipeline.
+
+- **Conversation system**: Branching multi-step dialogues with `Conversation::builder()`.
+  Supports sequential steps, conditional branching (`branch()`), unconditional jumps
+  (`goto()`), end markers (`end_at()`), custom input validators per step, and cancel
+  handling. Dispatched before forms in the update pipeline. `ctx.start_conversation()`.
+
+- **TestApp assertions**: `assert_screen()`, `assert_sent_text()`, `assert_sent_count()`,
+  `assert_no_messages()`, `assert_deleted()`, `current_screen()`, `fire_scheduled_callback()`.
+
+- **Observability**: `process_update` tracing span now includes `user_id` field.
+
+- **Examples**: 3 new examples:
+  - `admin_bot.rs` — router groups with auth middleware
+  - `scheduled_bot.rs` — scheduled messages & callbacks
+  - `conversation_bot.rs` — branching conversations
+
+- **Prelude**: Added `Conversation`, `ConversationBuilder`, `ConversationData`, `FormData`,
+  `RouterGroup`, `SchedulerHandle` to prelude.
+
+### Changed
+
+- `StateStore::load()` returns `Result<Option<ChatState>, String>` (was `Option<ChatState>`).
+- `StateStore::save()` returns `Result<(), String>` (was `()`).
+- `StateStore::delete()` returns `Result<(), String>` (was `()`).
+- `StateStore::all_chat_ids()` returns `Result<Vec<ChatId>, String>` (was `Vec<ChatId>`).
+- `RedbStore`: all methods now propagate errors instead of `let _ =` or `.ok()`.
+- `RedisStore`: all methods now propagate errors instead of silent drops.
+- `ChatSerializer::serialize()`: handles load/save Results with proper tracing.
+- `broadcast()`: handles `all_chat_ids()` Result.
+
 ## [0.4.1] — 2026-03-12
 
 ### Added
@@ -86,6 +136,7 @@
 
 - Initial public release.
 
+[0.4.2]: https://github.com/sl4ppleware/blazegram/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sl4ppleware/blazegram/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sl4ppleware/blazegram/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/sl4ppleware/blazegram/compare/v0.3.0...v0.3.1

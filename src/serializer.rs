@@ -37,17 +37,22 @@ impl ChatSerializer {
 
         let _guard = mutex.lock().await;
 
-        let mut state = self
-            .store
-            .load(chat_id)
-            .await
-            .unwrap_or_else(|| ChatState::new(chat_id, user.clone()));
+        let mut state = match self.store.load(chat_id).await {
+            Ok(Some(s)) => s,
+            Ok(None) => ChatState::new(chat_id, user.clone()),
+            Err(e) => {
+                tracing::error!(chat_id = chat_id.0, error = %e, "state load failed, using fresh");
+                ChatState::new(chat_id, user.clone())
+            }
+        };
 
         // Update user info on every interaction
         state.user = user.clone();
 
         let state = f(state).await;
-        self.store.save(&state).await;
+        if let Err(e) = self.store.save(&state).await {
+            tracing::error!(chat_id = chat_id.0, error = %e, "state save failed");
+        }
     }
 
     /// GC: remove mutexes for idle chats.

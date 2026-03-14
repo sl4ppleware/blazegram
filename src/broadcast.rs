@@ -72,7 +72,13 @@ pub async fn broadcast(
     screen: Screen,
     opts: BroadcastOptions,
 ) -> BroadcastResult {
-    let chat_ids = store.all_chat_ids().await;
+    let chat_ids = match store.all_chat_ids().await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "broadcast: failed to load chat IDs");
+            return BroadcastResult::default();
+        }
+    };
     let mut result = BroadcastResult::default();
 
     for chat_id in chat_ids {

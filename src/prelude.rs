@@ -3,10 +3,11 @@
 pub use crate::app::App;
 pub use crate::bot_api::{BotApi, SendOptions};
 pub use crate::broadcast::{BroadcastOptions, BroadcastResult, broadcast, broadcast_text};
+pub use crate::conversation::{Conversation, ConversationBuilder, ConversationData};
 pub use crate::ctx::{Ctx, PaymentContext};
 pub use crate::error::{ApiError, HandlerError, HandlerResult};
 pub use crate::file_cache::FileIdCache;
-pub use crate::form::Form;
+pub use crate::form::{Form, FormData};
 pub use crate::i18n::I18n;
 pub use crate::inline::{InlineAnswer, InlineResult, InlineResultBuilder};
 pub use crate::keyboard::{ButtonAction, InlineButton, InlineKeyboard, KeyboardBuilder};
@@ -21,6 +22,8 @@ pub use crate::progressive::ProgressiveHandle;
 pub use crate::rate_limiter::RateLimitedBotApi;
 #[cfg(feature = "redb")]
 pub use crate::redb_store::RedbStore;
+pub use crate::router::RouterGroup;
+pub use crate::scheduler::SchedulerHandle;
 pub use crate::screen::{ReplyButton, ReplyKeyboardAction, Screen, ScreenBuilder};
 pub use crate::state::{InMemoryStore, StateStore};
 pub use crate::template;

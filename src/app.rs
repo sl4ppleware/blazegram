@@ -11,6 +11,7 @@ use grammers_client::{Client, client::UpdatesConfiguration};
 use grammers_mtsender::SenderPool;
 
 use crate::bot_api::BotApi;
+use crate::conversation::Conversation;
 use crate::ctx::Ctx;
 use crate::error::{HandlerError, HandlerResult};
 use crate::form::{Form, FormData};
@@ -37,6 +38,7 @@ pub struct AppBuilder {
     store: Option<Arc<dyn StateStore>>,
     middlewares: Vec<Arc<dyn Middleware>>,
     forms: HashMap<String, Form>,
+    conversations: HashMap<String, Conversation>,
     rate_limit_rps: Option<u32>,
     on_error: Option<Arc<ErrorHandler>>,
     snapshot_path: Option<String>,
@@ -58,6 +60,7 @@ impl App {
             store: None,
             middlewares: Vec::new(),
             forms: HashMap::new(),
+            conversations: HashMap::new(),
             rate_limit_rps: None,
             on_error: None,
             snapshot_path: None,
@@ -276,6 +279,18 @@ impl AppBuilder {
         self
     }
 
+    /// Register a [`RouterGroup`](crate::router::RouterGroup) with its own middleware stack.
+    pub fn group(mut self, group: crate::router::RouterGroup) -> Self {
+        self.router.group(group);
+        self
+    }
+
+    /// Register a branching [`Conversation`].
+    pub fn conversation(mut self, conv: Conversation) -> Self {
+        self.conversations.insert(conv.id.clone(), conv);
+        self
+    }
+
     /// Set the maximum Telegram API requests per second (wraps BotApi in a rate limiter).
     pub fn rate_limit(mut self, rps: u32) -> Self {
         self.rate_limit_rps = Some(rps);
@@ -382,6 +397,7 @@ impl AppBuilder {
         let router = Arc::new(self.router);
         let middlewares = Arc::new(self.middlewares);
         let forms = Arc::new(self.forms);
+        let conversations = Arc::new(self.conversations);
         let on_error = self.on_error;
 
         tracing::info!("Blazegram: connecting via MTProto...");
@@ -463,6 +479,10 @@ impl AppBuilder {
             );
         }
 
+        // ── Scheduler ──
+        let (sched_cb_tx, mut sched_cb_rx) = tokio::sync::mpsc::unbounded_channel();
+        let scheduler = crate::scheduler::spawn_scheduler(bot_api.clone(), sched_cb_tx);
+
         // ── Build shared runtime ──
         let runtime = Runtime {
             bot_api: bot_api.clone(),
@@ -470,10 +490,12 @@ impl AppBuilder {
             serializer: serializer.clone(),
             middlewares: middlewares.clone(),
             forms: forms.clone(),
+            conversations: conversations.clone(),
             grammers_client: client.clone(),
             peer_cache: adapter.peer_cache(),
             on_error: on_error.clone(),
             max_state_keys: self.max_state_keys,
+            scheduler,
         };
 
         // ━━━ Phase 2: Event loop ━━━
@@ -500,6 +522,30 @@ impl AppBuilder {
                 _ = sigterm.recv() => {
                     tracing::info!("SIGTERM received, shutting down...");
                     break;
+                }
+                Some((chat_id, kind)) = sched_cb_rx.recv() => {
+                    if let crate::scheduler::ScheduledKind::Callback(data) = kind {
+                        let rt = runtime.clone();
+                        tokio::spawn(async move {
+                            let incoming = IncomingUpdate {
+                                chat_id,
+                                user: UserInfo {
+                                    id: UserId(0),
+                                    first_name: "scheduler".to_string(),
+                                    last_name: None,
+                                    username: None,
+                                    language_code: None,
+                                },
+                                message_id: None,
+                                kind: UpdateKind::CallbackQuery {
+                                    id: "__scheduled".to_string(),
+                                    data: Some(data),
+                                    inline_message_id: None,
+                                },
+                            };
+                            process_update(incoming, rt).await;
+                        });
+                    }
                 }
                 result = update_stream.next() => {
                     let update = match result {
@@ -621,15 +667,17 @@ struct Runtime {
     serializer: Arc<ChatSerializer>,
     middlewares: Arc<Vec<Arc<dyn Middleware>>>,
     forms: Arc<HashMap<String, Form>>,
+    conversations: Arc<HashMap<String, Conversation>>,
     grammers_client: grammers_client::Client,
     peer_cache: Arc<dashmap::DashMap<i64, grammers_session::types::PeerRef>>,
     on_error: Option<Arc<ErrorHandler>>,
     max_state_keys: usize,
+    scheduler: crate::scheduler::SchedulerHandle,
 }
 
 // ── Process update ──
 
-#[tracing::instrument(skip_all, fields(chat_id = %incoming.chat_id().0))]
+#[tracing::instrument(skip_all, fields(chat_id = %incoming.chat_id().0, user_id = %incoming.user().id.0))]
 async fn process_update(incoming: IncomingUpdate, rt: Runtime) {
     metrics().inc_updates();
     let _timer = metrics().timer("update");
@@ -660,6 +708,7 @@ async fn process_update(incoming: IncomingUpdate, rt: Runtime) {
                 ctx.grammers_client = Some(rt.grammers_client.clone());
                 ctx.peer_cache = Some(rt.peer_cache.clone());
                 ctx.max_state_keys = rt.max_state_keys;
+                ctx.scheduler = Some(rt.scheduler.clone());
 
                 // Determine CtxMode
                 let cid = incoming.chat_id;
@@ -759,8 +808,13 @@ async fn process_update(incoming: IncomingUpdate, rt: Runtime) {
                 }
 
                 let result = {
-                    let handler_fut =
-                        handle_form_or_route(&rt.forms, &rt.router, &mut ctx, &incoming);
+                    let handler_fut = handle_form_or_route(
+                        &rt.forms,
+                        &rt.conversations,
+                        &rt.router,
+                        &mut ctx,
+                        &incoming,
+                    );
                     match tokio::time::timeout(std::time::Duration::from_secs(120), handler_fut)
                         .await
                     {
@@ -801,10 +855,22 @@ async fn process_update(incoming: IncomingUpdate, rt: Runtime) {
 
 async fn handle_form_or_route(
     forms: &HashMap<String, Form>,
+    conversations: &HashMap<String, Conversation>,
     router: &Router,
     ctx: &mut Ctx,
     update: &IncomingUpdate,
 ) -> HandlerResult {
+    // Check conversation first
+    let conv_id: Option<String> = ctx.get("__conv_id");
+    if let Some(conv_id) = conv_id {
+        if let Some(conv) = conversations.get(&conv_id) {
+            return run_conversation_step(conv, ctx, update).await;
+        } else {
+            ctx.remove("__conv_id");
+        }
+    }
+
+    // Then form
     let form_id: Option<String> = ctx.get("__form_id");
     if let Some(form_id) = form_id {
         if let Some(form) = forms.get(&form_id) {
@@ -932,4 +998,132 @@ async fn advance_form_step(
     let lang = ctx.lang().to_string();
     let screen = (form.steps[next_step].screen_fn)(&form_data, &lang);
     ctx.navigate(screen).await
+}
+
+async fn run_conversation_step(
+    conv: &Conversation,
+    ctx: &mut Ctx,
+    update: &IncomingUpdate,
+) -> HandlerResult {
+    use crate::conversation::ConversationData;
+
+    let step_idx: usize = ctx.get("__conv_step").unwrap_or(0);
+    let mut conv_data: ConversationData = ctx.get("__conv_data").unwrap_or_default();
+
+    if let Some(mid) = update.message_id {
+        match &update.kind {
+            UpdateKind::Message { .. } | UpdateKind::Photo { .. } => {
+                ctx.state.pending_user_messages.push(mid);
+            }
+            _ => {}
+        }
+    }
+
+    match &update.kind {
+        UpdateKind::CallbackQuery {
+            data: Some(data),
+            id,
+            ..
+        } => {
+            ctx.state.pending_callback_id = Some(id.clone());
+            ctx.callback_data = Some(data.clone());
+
+            if data == "__conv_cancel" {
+                ctx.remove("__conv_id");
+                ctx.remove("__conv_step");
+                ctx.remove("__conv_data");
+                if let Some(ref on_cancel) = conv.on_cancel {
+                    return on_cancel(ctx).await;
+                }
+                return Ok(());
+            }
+
+            // Treat callback data as input for current step
+            if step_idx < conv.steps.len() {
+                let step = &conv.steps[step_idx];
+                if let Some(ref input_fn) = step.input_fn {
+                    match input_fn(ctx, data, &conv_data).await {
+                        Ok(Some(val)) => {
+                            conv_data.insert(step.name.clone(), val);
+                            ctx.set("__conv_data", &conv_data);
+                            return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
+                        }
+                        Ok(None) => return Ok(()), // retry
+                        Err(msg) => {
+                            let _ = ctx.toast(format!("❌ {msg}")).await;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    // No custom input fn — store callback data as value
+                    conv_data.insert(step.name.clone(), serde_json::Value::String(data.clone()));
+                    ctx.set("__conv_data", &conv_data);
+                    return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
+                }
+            }
+        }
+
+        UpdateKind::Message { text: Some(text) } => {
+            if text.starts_with('/') {
+                ctx.remove("__conv_id");
+                ctx.remove("__conv_step");
+                ctx.remove("__conv_data");
+                return Ok(());
+            }
+            if step_idx < conv.steps.len() {
+                let step = &conv.steps[step_idx];
+                if let Some(ref input_fn) = step.input_fn {
+                    match input_fn(ctx, text, &conv_data).await {
+                        Ok(Some(val)) => {
+                            conv_data.insert(step.name.clone(), val);
+                            ctx.set("__conv_data", &conv_data);
+                            return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
+                        }
+                        Ok(None) => return Ok(()),
+                        Err(msg) => {
+                            if let Some(mid) = update.message_id {
+                                let _ = ctx.delete_now(mid).await;
+                                ctx.state.pending_user_messages.retain(|id| *id != mid);
+                            }
+                            let _ = ctx
+                                .notify_temp(format!("❌ {msg}"), std::time::Duration::from_secs(3))
+                                .await;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    // No custom input fn — store text as value
+                    conv_data.insert(step.name.clone(), serde_json::Value::String(text.clone()));
+                    ctx.set("__conv_data", &conv_data);
+                    return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
+                }
+            }
+        }
+
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn advance_conversation_step(
+    conv: &Conversation,
+    ctx: &mut Ctx,
+    current_step: usize,
+    conv_data: crate::conversation::ConversationData,
+) -> HandlerResult {
+    match conv.next_step(current_step, &conv_data) {
+        Some(next_idx) => {
+            ctx.set("__conv_step", &next_idx);
+            let lang = ctx.lang().to_string();
+            let screen = (conv.steps[next_idx].screen_fn)(&conv_data, &lang);
+            ctx.navigate(screen).await
+        }
+        None => {
+            // Conversation complete
+            ctx.remove("__conv_id");
+            ctx.remove("__conv_step");
+            ctx.remove("__conv_data");
+            (conv.on_complete)(ctx, conv_data).await
+        }
+    }
 }

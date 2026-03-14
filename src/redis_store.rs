@@ -58,85 +58,84 @@ impl RedisStore {
 
 #[async_trait]
 impl StateStore for RedisStore {
-    async fn load(&self, chat_id: ChatId) -> Option<ChatState> {
-        let mut conn = self.pool.get().await.ok()?;
-        let bytes: Option<Vec<u8>> = conn.get(self.key(chat_id)).await.ok()?;
-        bytes.and_then(|b| match serde_json::from_slice(&b) {
-            Ok(state) => Some(state),
-            Err(e) => {
-                tracing::warn!(chat_id = chat_id.0, error = %e, "corrupt state in redis — treating as fresh");
-                None
-            }
-        })
-    }
-
-    async fn save(&self, state: &ChatState) {
-        let bytes = match serde_json::to_vec(state) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to serialize state for redis");
-                return;
-            }
-        };
-        let mut conn = match self.pool.get().await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "redis pool error on save");
-                return;
-            }
-        };
-        if let Err(e) = conn
-            .set_ex::<_, _, ()>(self.key(state.chat_id), bytes, self.ttl.as_secs())
+    async fn load(&self, chat_id: ChatId) -> Result<Option<ChatState>, String> {
+        let mut conn = self
+            .pool
+            .get()
             .await
-        {
-            tracing::error!(chat_id = state.chat_id.0, error = %e, "failed to save state to redis");
+            .map_err(|e| format!("redis pool: {e}"))?;
+        let bytes: Option<Vec<u8>> = conn
+            .get(self.key(chat_id))
+            .await
+            .map_err(|e| format!("redis get: {e}"))?;
+        match bytes {
+            Some(b) => match serde_json::from_slice(&b) {
+                Ok(state) => Ok(Some(state)),
+                Err(e) => {
+                    tracing::warn!(chat_id = chat_id.0, error = %e, "corrupt state in redis — treating as fresh");
+                    Ok(None)
+                }
+            },
+            None => Ok(None),
         }
     }
 
-    async fn delete(&self, chat_id: ChatId) {
-        let mut conn = match self.pool.get().await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "redis pool error on delete");
-                return;
-            }
-        };
-        if let Err(e) = conn.del::<_, ()>(self.key(chat_id)).await {
-            tracing::error!(chat_id = chat_id.0, error = %e, "failed to delete state from redis");
-        }
+    async fn save(&self, state: &ChatState) -> Result<(), String> {
+        let bytes = serde_json::to_vec(state).map_err(|e| format!("serialize: {e}"))?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| format!("redis pool: {e}"))?;
+        conn.set_ex::<_, _, ()>(self.key(state.chat_id), bytes, self.ttl.as_secs())
+            .await
+            .map_err(|e| format!("redis set_ex: {e}"))?;
+        Ok(())
     }
 
-    async fn all_chat_ids(&self) -> Vec<ChatId> {
-        if let Ok(mut conn) = self.pool.get().await {
-            // Use SCAN instead of KEYS to avoid blocking Redis on large datasets
-            let pattern = format!("{}:*", self.prefix);
-            let mut chat_ids = Vec::new();
-            let mut cursor: u64 = 0;
-            loop {
-                let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                    .arg(cursor)
-                    .arg("MATCH")
-                    .arg(&pattern)
-                    .arg("COUNT")
-                    .arg(100)
-                    .query_async(&mut *conn)
-                    .await
-                    .unwrap_or((0, Vec::new()));
-                for key in &keys {
-                    if let Some(id_str) = key.rsplit(':').next() {
-                        if let Ok(id) = id_str.parse::<i64>() {
-                            chat_ids.push(ChatId(id));
-                        }
+    async fn delete(&self, chat_id: ChatId) -> Result<(), String> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| format!("redis pool: {e}"))?;
+        conn.del::<_, ()>(self.key(chat_id))
+            .await
+            .map_err(|e| format!("redis del: {e}"))?;
+        Ok(())
+    }
+
+    async fn all_chat_ids(&self) -> Result<Vec<ChatId>, String> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| format!("redis pool: {e}"))?;
+        let pattern = format!("{}:*", self.prefix);
+        let mut chat_ids = Vec::new();
+        let mut cursor: u64 = 0;
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut *conn)
+                .await
+                .map_err(|e| format!("redis scan: {e}"))?;
+            for key in &keys {
+                if let Some(id_str) = key.rsplit(':').next() {
+                    if let Ok(id) = id_str.parse::<i64>() {
+                        chat_ids.push(ChatId(id));
                     }
                 }
-                cursor = next_cursor;
-                if cursor == 0 {
-                    break;
-                }
             }
-            chat_ids
-        } else {
-            Vec::new()
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
         }
+        Ok(chat_ids)
     }
 }

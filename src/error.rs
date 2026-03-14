@@ -67,6 +67,10 @@ pub enum HandlerError {
     /// An internal / unexpected error (wraps [`anyhow::Error`]).
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
+
+    /// A state store operation failed.
+    #[error("state error: {0}")]
+    State(String),
 }
 
 /// Convenience alias: `Result<(), HandlerError>`.

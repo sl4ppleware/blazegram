@@ -61,6 +61,8 @@ pub(crate) mod update_parser;
 
 /// Broadcast messages to multiple chats.
 pub mod broadcast;
+/// Branching conversation system — multi-step dialogues with conditional flow.
+pub mod conversation;
 /// Multi-step form wizards with validation.
 pub mod form;
 /// FTL-based i18n with `{ $var }` interpolation.
@@ -71,6 +73,8 @@ pub mod inline;
 pub mod pagination;
 /// Progressive screen updates (streaming, progress bars). Auto-cancelled on navigate().
 pub mod progressive;
+/// Delayed action scheduler — fire callbacks after a duration.
+pub mod scheduler;
 /// Template engine: `{{ var }}`, `{% if %}`, `{% for %}`.
 pub mod template;
 

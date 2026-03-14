@@ -61,6 +61,9 @@ pub struct Ctx {
     /// Abort handle for active progressive task (if any).
     pub(crate) progressive_abort: Option<tokio::task::AbortHandle>,
 
+    /// Scheduler handle for delayed actions.
+    pub(crate) scheduler: Option<crate::scheduler::SchedulerHandle>,
+
     /// Maximum number of keys allowed in `state.data`.
     pub(crate) max_state_keys: usize,
 }
@@ -89,6 +92,7 @@ impl Ctx {
             grammers_client: None,
             peer_cache: None,
             progressive_abort: None,
+            scheduler: None,
             max_state_keys: 1000,
         }
     }
@@ -356,6 +360,64 @@ impl Ctx {
     }
 
     // ─── Push / Pop ───
+
+    /// Edit the last bot message in place without running the differ.
+    ///
+    /// Only the first message of the screen is used (edits the most recent tracked message).
+    /// This is lighter than [`navigate`](Self::navigate) — no diff, no delete, just one edit call.
+    ///
+    /// ```rust,ignore
+    /// ctx.edit_last(Screen::text("id", "Counter: 42")
+    ///     .keyboard(kb.build())
+    ///     .build()
+    /// ).await?;
+    /// ```
+    pub async fn edit_last(&mut self, screen: Screen) -> HandlerResult {
+        let msg = screen.messages.first().ok_or_else(|| {
+            HandlerError::Internal(anyhow::anyhow!("edit_last: screen has no messages"))
+        })?;
+
+        let tracked = self.state.active_bot_messages.last().ok_or_else(|| {
+            HandlerError::Internal(anyhow::anyhow!("edit_last: no tracked messages"))
+        })?;
+        let msg_id = tracked.message_id;
+
+        // Execute the edit based on content type
+        match &msg.content {
+            MessageContent::Text {
+                text,
+                parse_mode,
+                keyboard,
+                link_preview,
+            } => {
+                self.bot
+                    .edit_message_text(
+                        self.chat_id,
+                        msg_id,
+                        text.clone(),
+                        *parse_mode,
+                        keyboard.clone(),
+                        matches!(link_preview, LinkPreview::Enabled),
+                    )
+                    .await
+                    .map_err(HandlerError::Api)?;
+            }
+            other => {
+                let kb = other.keyboard();
+                self.bot
+                    .edit_message_media(self.chat_id, msg_id, other.clone(), kb)
+                    .await
+                    .map_err(HandlerError::Api)?;
+            }
+        }
+
+        // Update the tracked message content
+        if let Some(tracked) = self.state.active_bot_messages.last_mut() {
+            *tracked = TrackedMessage::from_content(msg_id, &msg.content);
+        }
+
+        Ok(())
+    }
 
     /// Navigate with push: saves current screen on the stack for pop() later.
     /// Stack is capped at 20 levels (oldest dropped).
@@ -895,6 +957,8 @@ impl Ctx {
     }
 
     /// Send a temp notification that auto-deletes after duration.
+    ///
+    /// Uses the scheduler if available, otherwise spawns a raw tokio task.
     pub async fn notify_temp(&self, text: impl Into<String>, duration: Duration) -> HandlerResult {
         let sent = self
             .bot
@@ -911,14 +975,38 @@ impl Ctx {
             .await
             .map_err(HandlerError::Api)?;
 
-        let bot = self.bot.clone();
-        let chat_id = self.chat_id;
-        let msg_id = sent.message_id;
-        tokio::spawn(async move {
-            tokio::time::sleep(duration).await;
-            let _ = bot.delete_messages(chat_id, vec![msg_id]).await;
-        });
+        if let Some(ref sched) = self.scheduler {
+            sched.delete_later(self.chat_id, vec![sent.message_id], duration);
+        } else {
+            let bot = self.bot.clone();
+            let chat_id = self.chat_id;
+            let msg_id = sent.message_id;
+            tokio::spawn(async move {
+                tokio::time::sleep(duration).await;
+                let _ = bot.delete_messages(chat_id, vec![msg_id]).await;
+            });
+        }
         Ok(())
+    }
+
+    // ─── Scheduler (delayed actions) ───
+
+    /// Schedule message deletion after a delay.
+    ///
+    /// Requires the scheduler to be active (always true when using [`App::builder`](crate::app::App::builder)).
+    /// In tests without a scheduler, this is a no-op.
+    pub fn delete_later(&self, message_ids: Vec<MessageId>, delay: Duration) {
+        if let Some(ref sched) = self.scheduler {
+            sched.delete_later(self.chat_id, message_ids, delay);
+        }
+    }
+
+    /// Schedule a synthetic callback to fire after a delay.
+    /// The callback data is routed through the normal callback dispatch.
+    pub fn schedule_callback(&self, data: impl Into<String>, delay: Duration) {
+        if let Some(ref sched) = self.scheduler {
+            sched.callback_later(self.chat_id, data.into(), delay);
+        }
     }
 
     // ─── Progressive (streaming updates) ───
@@ -1322,6 +1410,27 @@ impl Ctx {
         let data = FormData::new();
         let lang = self.lang().to_string();
         let screen = (form.steps[0].screen_fn)(&data, &lang);
+        self.navigate(screen).await
+    }
+
+    /// Start a branching conversation.
+    ///
+    /// Looks up the conversation by `conv_id`, initialises conversation state,
+    /// and navigates to the first step.
+    pub async fn start_conversation(
+        &mut self,
+        conv_id: &str,
+        conversations: &HashMap<String, crate::conversation::Conversation>,
+    ) -> HandlerResult {
+        let conv = conversations.get(conv_id).ok_or_else(|| {
+            HandlerError::Internal(anyhow::anyhow!("conversation '{}' not found", conv_id))
+        })?;
+        self.set("__conv_id", &conv_id.to_string());
+        self.set("__conv_step", &0usize);
+        self.set("__conv_data", &crate::conversation::ConversationData::new());
+        let data = crate::conversation::ConversationData::new();
+        let lang = self.lang().to_string();
+        let screen = (conv.steps[0].screen_fn)(&data, &lang);
         self.navigate(screen).await
     }
 }

@@ -42,6 +42,117 @@ pub type BoxInlineHandler = Arc<
         + Sync,
 >;
 
+/// A group of routes with their own middleware stack.
+///
+/// Groups allow organizing handlers into logical modules, each with
+/// independent middleware. For example, an admin group can require
+/// authentication while public commands remain open.
+///
+/// ```rust,ignore
+/// let admin = RouterGroup::new()
+///     .middleware(AuthMiddleware::new(vec![ADMIN_ID]))
+///     .command("ban", handler!(ctx => { /* ... */ Ok(()) }))
+///     .command("stats", handler!(ctx => { /* ... */ Ok(()) }));
+///
+/// App::builder("TOKEN")
+///     .group(admin)
+///     .command("start", handler!(ctx => { /* ... */ Ok(()) }))
+///     .run().await;
+/// ```
+pub struct RouterGroup {
+    commands: HashMap<String, BoxHandler>,
+    callbacks: HashMap<String, BoxHandler>,
+    callback_order: Vec<String>,
+    text_inputs: HashMap<ScreenId, BoxInputHandler>,
+    media_inputs: HashMap<ScreenId, BoxMediaInputHandler>,
+    middlewares: Vec<Arc<dyn crate::middleware::Middleware>>,
+}
+
+impl RouterGroup {
+    /// Create a new empty router group.
+    pub fn new() -> Self {
+        Self {
+            commands: HashMap::new(),
+            callbacks: HashMap::new(),
+            callback_order: Vec::new(),
+            text_inputs: HashMap::new(),
+            media_inputs: HashMap::new(),
+            middlewares: Vec::new(),
+        }
+    }
+
+    /// Add a middleware to this group.
+    pub fn middleware(mut self, m: impl crate::middleware::Middleware + 'static) -> Self {
+        self.middlewares.push(Arc::new(m));
+        self
+    }
+
+    /// Register a `/command` handler in this group.
+    pub fn command(
+        mut self,
+        name: &str,
+        handler: impl Fn(&mut Ctx) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        let name = name.strip_prefix('/').unwrap_or(name).to_lowercase();
+        self.commands.insert(name, Arc::new(handler));
+        self
+    }
+
+    /// Register a callback-query prefix handler in this group.
+    pub fn callback(
+        mut self,
+        prefix: &str,
+        handler: impl Fn(&mut Ctx) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.callback_order.push(prefix.to_string());
+        self.callbacks.insert(prefix.to_string(), Arc::new(handler));
+        self
+    }
+
+    /// Register a text input handler for a specific screen in this group.
+    pub fn on_input(
+        mut self,
+        screen_id: &str,
+        handler: impl Fn(&mut Ctx, String) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.text_inputs
+            .insert(ScreenId::from(screen_id.to_string()), Arc::new(handler));
+        self
+    }
+
+    /// Register a media input handler for a specific screen in this group.
+    pub fn on_media_input(
+        mut self,
+        screen_id: &str,
+        handler: impl Fn(
+            &mut Ctx,
+            ReceivedMedia,
+        ) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.media_inputs
+            .insert(ScreenId::from(screen_id.to_string()), Arc::new(handler));
+        self
+    }
+}
+
+impl Default for RouterGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Central routing table that maps commands, callbacks, and inputs to handlers.
 pub struct Router {
     commands: HashMap<String, BoxHandler>,
@@ -58,6 +169,7 @@ pub struct Router {
     successful_payment_handler: Option<BoxHandler>,
     member_joined_handler: Option<BoxHandler>,
     member_left_handler: Option<BoxHandler>,
+    groups: Vec<RouterGroup>,
     /// When `true` (default), unrecognized messages are silently deleted
     /// if no `on_unrecognized` handler is registered. Set to `false` to
     /// leave user messages untouched.
@@ -82,8 +194,14 @@ impl Router {
             successful_payment_handler: None,
             member_joined_handler: None,
             member_left_handler: None,
+            groups: Vec::new(),
             delete_unrecognized: true,
         }
+    }
+
+    /// Register a [`RouterGroup`] with its own middleware stack.
+    pub fn group(&mut self, group: RouterGroup) {
+        self.groups.push(group);
     }
 
     /// Register a `/command` handler.
@@ -272,6 +390,102 @@ impl Router {
 
     // ─── Routing ───
 
+    /// Try to match a command in groups. Returns `Some(result)` if matched.
+    async fn try_group_command(
+        &self,
+        ctx: &mut Ctx,
+        cmd: &str,
+        update: &IncomingUpdate,
+    ) -> Option<HandlerResult> {
+        for group in &self.groups {
+            if let Some(handler) = group.commands.get(cmd) {
+                for mw in &group.middlewares {
+                    if !mw.before(ctx.chat_id, &ctx.user, update).await {
+                        return Some(Ok(()));
+                    }
+                }
+                return Some(handler(ctx).await);
+            }
+        }
+        None
+    }
+
+    /// Try to match a callback in groups. Returns `Some(result)` if matched.
+    async fn try_group_callback(
+        &self,
+        ctx: &mut Ctx,
+        data: &str,
+        update: &IncomingUpdate,
+    ) -> Option<HandlerResult> {
+        for group in &self.groups {
+            // Exact match
+            if let Some(handler) = group.callbacks.get(data) {
+                for mw in &group.middlewares {
+                    if !mw.before(ctx.chat_id, &ctx.user, update).await {
+                        return Some(Ok(()));
+                    }
+                }
+                return Some(handler(ctx).await);
+            }
+            // Prefix match
+            let mut remaining = data;
+            while let Some(pos) = remaining.rfind(':') {
+                remaining = &remaining[..pos];
+                if let Some(handler) = group.callbacks.get(remaining) {
+                    for mw in &group.middlewares {
+                        if !mw.before(ctx.chat_id, &ctx.user, update).await {
+                            return Some(Ok(()));
+                        }
+                    }
+                    return Some(handler(ctx).await);
+                }
+            }
+        }
+        None
+    }
+
+    /// Try to match text input in groups. Returns `Some(result)` if matched.
+    async fn try_group_text_input(
+        &self,
+        ctx: &mut Ctx,
+        screen: &ScreenId,
+        text: &str,
+        update: &IncomingUpdate,
+    ) -> Option<HandlerResult> {
+        for group in &self.groups {
+            if let Some(handler) = group.text_inputs.get(screen) {
+                for mw in &group.middlewares {
+                    if !mw.before(ctx.chat_id, &ctx.user, update).await {
+                        return Some(Ok(()));
+                    }
+                }
+                return Some(handler(ctx, text.to_string()).await);
+            }
+        }
+        None
+    }
+
+    /// Try to match media input in groups. Returns `Some(result)` if matched.
+    async fn try_group_media_input(
+        &self,
+        ctx: &mut Ctx,
+        screen: &ScreenId,
+        media: ReceivedMedia,
+        update: &IncomingUpdate,
+    ) -> Option<HandlerResult> {
+        for group in &self.groups {
+            if let Some(handler) = group.media_inputs.get(screen) {
+                for mw in &group.middlewares {
+                    if !mw.before(ctx.chat_id, &ctx.user, update).await {
+                        return Some(Ok(()));
+                    }
+                }
+                return Some(handler(ctx, media).await);
+            }
+        }
+        None
+    }
+
     pub(crate) async fn route(&self, ctx: &mut Ctx, update: &IncomingUpdate) -> HandlerResult {
         // Push message_id to pending_user_messages for message-type updates
         if let Some(mid) = update.message_id {
@@ -309,11 +523,20 @@ impl Router {
                             .expect("split always yields at least one segment")
                             .to_lowercase();
 
+                        if let Some(result) = self.try_group_command(ctx, &cmd, update).await {
+                            return result;
+                        }
                         if let Some(handler) = self.commands.get(&cmd) {
                             return handler(ctx).await;
                         }
                     }
 
+                    if let Some(result) = self
+                        .try_group_text_input(ctx, &ctx.state.current_screen.clone(), text, update)
+                        .await
+                    {
+                        return result;
+                    }
                     if let Some(handler) = self.text_inputs.get(&ctx.state.current_screen) {
                         return handler(ctx, text.clone()).await;
                     }
@@ -331,6 +554,11 @@ impl Router {
 
                 if let Some(data) = data {
                     ctx.callback_data = Some(data.clone());
+
+                    // Check groups first
+                    if let Some(result) = self.try_group_callback(ctx, data, update).await {
+                        return result;
+                    }
 
                     // O(1) lookup: try exact match, then progressively shorter prefixes
                     if let Some(handler) = self.callbacks.get(data.as_str()) {
@@ -355,8 +583,15 @@ impl Router {
             | UpdateKind::VideoNote { .. }
             | UpdateKind::Video { .. }
             | UpdateKind::Sticker { .. } => {
-                if let Some(handler) = self.media_inputs.get(&ctx.state.current_screen) {
-                    if let Some(media) = update.kind.to_received_media() {
+                let screen = ctx.state.current_screen.clone();
+                if let Some(media) = update.kind.to_received_media() {
+                    if let Some(result) = self
+                        .try_group_media_input(ctx, &screen, media.clone(), update)
+                        .await
+                    {
+                        return result;
+                    }
+                    if let Some(handler) = self.media_inputs.get(&screen) {
                         return handler(ctx, media).await;
                     }
                 }
@@ -1096,6 +1331,196 @@ mod tests {
                 inline_message_id: "im_1".into()
             }
         );
+    }
+
+    // ─── Router groups ───
+
+    #[tokio::test]
+    async fn group_command_dispatches() {
+        let called = handler_flag();
+        let c = called.clone();
+        let mut router = Router::new();
+        router.group(RouterGroup::new().command("admin", move |_ctx: &mut Ctx| {
+            let c = c.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        }));
+        let mut ctx = make_ctx();
+        let update = make_update_text("/admin");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_callback_dispatches() {
+        let called = handler_flag();
+        let c = called.clone();
+        let mut router = Router::new();
+        router.group(RouterGroup::new().callback("grp", move |_ctx: &mut Ctx| {
+            let c = c.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        }));
+        let mut ctx = make_ctx();
+        let update = make_update_callback("grp:42");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_middleware_blocks() {
+        let handler_called = handler_flag();
+        let hc = handler_called.clone();
+        let mut router = Router::new();
+        // AuthMiddleware only allows user 999, our test_user is 42
+        router.group(
+            RouterGroup::new()
+                .middleware(crate::middleware::AuthMiddleware::new(vec![999]))
+                .command("secret", move |_ctx: &mut Ctx| {
+                    let c = hc.clone();
+                    Box::pin(async move {
+                        c.store(true, Ordering::SeqCst);
+                        Ok(())
+                    })
+                }),
+        );
+        let mut ctx = make_ctx();
+        let update = make_update_text("/secret");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(
+            !handler_called.load(Ordering::SeqCst),
+            "middleware should have blocked"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_middleware_allows() {
+        let handler_called = handler_flag();
+        let hc = handler_called.clone();
+        let mut router = Router::new();
+        // test_user is UserId(1)
+        router.group(
+            RouterGroup::new()
+                .middleware(crate::middleware::AuthMiddleware::new(vec![1]))
+                .command("secret", move |_ctx: &mut Ctx| {
+                    let c = hc.clone();
+                    Box::pin(async move {
+                        c.store(true, Ordering::SeqCst);
+                        Ok(())
+                    })
+                }),
+        );
+        let mut ctx = make_ctx();
+        let update = make_update_text("/secret");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(handler_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_text_input_dispatches() {
+        let called = handler_flag();
+        let c = called.clone();
+        let mut router = Router::new();
+        router.group(RouterGroup::new().on_input(
+            "grp_screen",
+            move |_ctx: &mut Ctx, _text: String| {
+                let c = c.clone();
+                Box::pin(async move {
+                    c.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+            },
+        ));
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("grp_screen");
+        let update = make_update_text("hello");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_media_input_dispatches() {
+        let called = handler_flag();
+        let c = called.clone();
+        let mut router = Router::new();
+        router.group(RouterGroup::new().on_media_input(
+            "grp_media",
+            move |_ctx: &mut Ctx, _media: ReceivedMedia| {
+                let c = c.clone();
+                Box::pin(async move {
+                    c.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+            },
+        ));
+        let mut ctx = make_ctx();
+        ctx.state.current_screen = ScreenId::from("grp_media");
+        let update = make_update_photo();
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_falls_through_to_main_router() {
+        let main_called = handler_flag();
+        let mc = main_called.clone();
+        let mut router = Router::new();
+        router.group(
+            RouterGroup::new().command("admin", |_ctx: &mut Ctx| Box::pin(async move { Ok(()) })),
+        );
+        router.command("help", move |_ctx: &mut Ctx| {
+            let c = mc.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/help");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(main_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn group_takes_priority_over_main_router() {
+        let group_called = handler_flag();
+        let gc = group_called.clone();
+        let main_called = handler_flag();
+        let mc = main_called.clone();
+        let mut router = Router::new();
+        router.group(RouterGroup::new().command("start", move |_ctx: &mut Ctx| {
+            let c = gc.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        }));
+        router.command("start", move |_ctx: &mut Ctx| {
+            let c = mc.clone();
+            Box::pin(async move {
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = make_update_text("/start");
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(group_called.load(Ordering::SeqCst), "group should win");
+        assert!(
+            !main_called.load(Ordering::SeqCst),
+            "main should NOT be called"
+        );
+    }
+
+    #[tokio::test]
+    async fn router_group_default_impl() {
+        let group = RouterGroup::default();
+        assert!(group.commands.is_empty());
+        assert!(group.middlewares.is_empty());
     }
 
     // ─── Default (no handler) ───
