@@ -276,7 +276,10 @@ impl AppBuilder {
     /// Handler for [Web App](https://core.telegram.org/bots/webapps) data.
     pub fn on_web_app_data(
         mut self,
-        handler: impl Fn(&mut Ctx, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        handler: impl Fn(
+            &mut Ctx,
+            String,
+        ) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
         + Send
         + Sync
         + 'static,

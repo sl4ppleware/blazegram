@@ -133,7 +133,10 @@ impl StateStore for RedbStore {
             let ids: Vec<ChatId> = table
                 .iter()
                 .map_err(|e| format!("redb iter: {e}"))?
-                .map(|r| r.map(|(k, _)| ChatId(k.value())).map_err(|e| format!("redb row: {e}")))
+                .map(|r| {
+                    r.map(|(k, _)| ChatId(k.value()))
+                        .map_err(|e| format!("redb row: {e}"))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(ids)
         })

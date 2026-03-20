@@ -415,8 +415,9 @@ impl GrammersAdapter {
             })
             .await
             .map_err(Self::convert_error)?;
-        let msg_id = extract_forwarded_msg_id(&result)
-            .ok_or_else(|| ApiError::Unknown("could not extract message ID from forward response".into()))?;
+        let msg_id = extract_forwarded_msg_id(&result).ok_or_else(|| {
+            ApiError::Unknown("could not extract message ID from forward response".into())
+        })?;
         Ok(SentMessage {
             message_id: MessageId(msg_id),
             chat_id,
@@ -458,8 +459,9 @@ impl GrammersAdapter {
             })
             .await
             .map_err(Self::convert_error)?;
-        let msg_id = extract_forwarded_msg_id(&result)
-            .ok_or_else(|| ApiError::Unknown("could not extract message ID from forward response".into()))?;
+        let msg_id = extract_forwarded_msg_id(&result).ok_or_else(|| {
+            ApiError::Unknown("could not extract message ID from forward response".into())
+        })?;
         Ok(MessageId(msg_id))
     }
 

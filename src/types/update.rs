@@ -197,7 +197,11 @@ impl IncomingUpdate {
                     return None; // /starting, /starter etc — not a deep link
                 };
                 let payload = rest.trim();
-                if payload.is_empty() { None } else { Some(payload) }
+                if payload.is_empty() {
+                    None
+                } else {
+                    Some(payload)
+                }
             }
             _ => None,
         }

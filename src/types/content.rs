@@ -574,7 +574,11 @@ mod tests {
             keyboard: None,
             spoiler: false,
         };
-        assert_ne!(a.content_hash(), b.content_hash(), "different parse_mode must produce different hash");
+        assert_ne!(
+            a.content_hash(),
+            b.content_hash(),
+            "different parse_mode must produce different hash"
+        );
     }
 
     #[test]
