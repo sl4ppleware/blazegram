@@ -62,7 +62,6 @@ pub type BoxInlineHandler = Arc<
 pub struct RouterGroup {
     commands: HashMap<String, BoxHandler>,
     callbacks: HashMap<String, BoxHandler>,
-    callback_order: Vec<String>,
     text_inputs: HashMap<ScreenId, BoxInputHandler>,
     media_inputs: HashMap<ScreenId, BoxMediaInputHandler>,
     middlewares: Vec<Arc<dyn crate::middleware::Middleware>>,
@@ -74,7 +73,6 @@ impl RouterGroup {
         Self {
             commands: HashMap::new(),
             callbacks: HashMap::new(),
-            callback_order: Vec::new(),
             text_inputs: HashMap::new(),
             media_inputs: HashMap::new(),
             middlewares: Vec::new(),
@@ -110,7 +108,6 @@ impl RouterGroup {
         + Sync
         + 'static,
     ) -> Self {
-        self.callback_order.push(prefix.to_string());
         self.callbacks.insert(prefix.to_string(), Arc::new(handler));
         self
     }
@@ -157,9 +154,9 @@ impl Default for RouterGroup {
 pub struct Router {
     commands: HashMap<String, BoxHandler>,
     callbacks: HashMap<String, BoxHandler>,
-    callback_order: Vec<String>,
     text_inputs: HashMap<ScreenId, BoxInputHandler>,
     media_inputs: HashMap<ScreenId, BoxMediaInputHandler>,
+    web_app_data_handler: Option<BoxInputHandler>,
     any_text_handler: Option<BoxTextHandler>,
     unrecognized_handler: Option<BoxHandler>,
     inline_handler: Option<BoxInlineHandler>,
@@ -182,9 +179,9 @@ impl Router {
         Self {
             commands: HashMap::new(),
             callbacks: HashMap::new(),
-            callback_order: Vec::new(),
             text_inputs: HashMap::new(),
             media_inputs: HashMap::new(),
+            web_app_data_handler: None,
             any_text_handler: None,
             unrecognized_handler: None,
             inline_handler: None,
@@ -227,7 +224,7 @@ impl Router {
         + 'static,
     ) {
         // Warn about potential ambiguous callback prefixes
-        for existing in &self.callback_order {
+        for existing in self.callbacks.keys() {
             if (prefix.starts_with(existing.as_str()) || existing.starts_with(prefix))
                 && prefix != existing
             {
@@ -239,7 +236,6 @@ impl Router {
                 );
             }
         }
-        self.callback_order.push(prefix.to_string());
         self.callbacks.insert(prefix.to_string(), Arc::new(handler));
     }
 
@@ -362,6 +358,17 @@ impl Router {
         + 'static,
     ) {
         self.member_joined_handler = Some(Arc::new(handler));
+    }
+
+    /// Register a handler for [`WebAppData`](UpdateKind::WebAppData) updates.
+    pub fn on_web_app_data(
+        &mut self,
+        handler: impl Fn(&mut Ctx, String) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.web_app_data_handler = Some(Arc::new(handler));
     }
 
     /// Set the member-left handler.
@@ -500,6 +507,11 @@ impl Router {
                 | UpdateKind::ContactReceived { .. }
                 | UpdateKind::LocationReceived { .. } => {
                     ctx.state.pending_user_messages.push(mid);
+                    // Cap pending user messages to prevent unbounded growth
+                    const MAX_PENDING: usize = 100;
+                    if ctx.state.pending_user_messages.len() > MAX_PENDING {
+                        ctx.state.pending_user_messages.remove(0);
+                    }
                 }
                 _ => {}
             }
@@ -641,6 +653,18 @@ impl Router {
             }
 
             UpdateKind::ContactReceived { .. } | UpdateKind::LocationReceived { .. } => {
+                let screen = ctx.state.current_screen.clone();
+                if let Some(media) = update.kind.to_received_media() {
+                    if let Some(result) = self
+                        .try_group_media_input(ctx, &screen, media.clone(), update)
+                        .await
+                    {
+                        return result;
+                    }
+                    if let Some(handler) = self.media_inputs.get(&screen) {
+                        return handler(ctx, media).await;
+                    }
+                }
                 self.handle_unrecognized(ctx).await
             }
 
@@ -658,7 +682,12 @@ impl Router {
                 Ok(())
             }
 
-            UpdateKind::WebAppData { .. } => Ok(()),
+            UpdateKind::WebAppData { data } => {
+                if let Some(handler) = &self.web_app_data_handler {
+                    return handler(ctx, data.clone()).await;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1521,6 +1550,61 @@ mod tests {
         let group = RouterGroup::default();
         assert!(group.commands.is_empty());
         assert!(group.middlewares.is_empty());
+    }
+
+    // ─── WebAppData handler ───
+
+    #[tokio::test]
+    async fn web_app_data_dispatches() {
+        let called = handler_flag();
+        let called2 = called.clone();
+        let mut router = Router::new();
+        router.on_web_app_data(move |_ctx: &mut Ctx, data: String| {
+            let c = called2.clone();
+            Box::pin(async move {
+                assert_eq!(data, "payload123");
+                c.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let mut ctx = make_ctx();
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: None,
+            kind: UpdateKind::WebAppData {
+                data: "payload123".into(),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ─── Pending user messages cap ───
+
+    #[tokio::test]
+    async fn pending_user_messages_capped_at_100() {
+        let mut router = Router::new();
+        router.delete_unrecognized = false;
+        let mut ctx = make_ctx();
+        // Pre-fill with 100 messages
+        for i in 0..100 {
+            ctx.state.pending_user_messages.push(MessageId(i));
+        }
+        assert_eq!(ctx.state.pending_user_messages.len(), 100);
+        let update = IncomingUpdate {
+            chat_id: ChatId(1),
+            user: test_user(),
+            message_id: Some(MessageId(999)),
+            kind: UpdateKind::Message {
+                text: Some("hello".into()),
+            },
+        };
+        router.route(&mut ctx, &update).await.unwrap();
+        // Should still be 100, oldest evicted
+        assert_eq!(ctx.state.pending_user_messages.len(), 100);
+        assert!(!ctx.state.pending_user_messages.contains(&MessageId(0)));
+        assert!(ctx.state.pending_user_messages.contains(&MessageId(999)));
     }
 
     // ─── Default (no handler) ───

@@ -209,7 +209,7 @@ async fn do_edit(editor: &EditorFn, screen: Screen, last_edit: &mut Instant) {
         }
         Err(ApiError::TooManyRequests { retry_after }) => {
             tracing::warn!("progressive edit rate-limited, waiting {}s", retry_after);
-            tokio::time::sleep(Duration::from_secs(retry_after as u64)).await;
+            tokio::time::sleep(Duration::from_secs((retry_after as u64).min(30))).await;
             *last_edit = Instant::now();
         }
         Err(e) => {

@@ -4,7 +4,7 @@ use grammers_client::{message::InputMessage, tl};
 
 use super::GrammersAdapter;
 use super::helpers;
-use super::helpers::rand_i64;
+use super::helpers::{PackedFileId, rand_i64};
 use crate::bot_api::SendOptions;
 use crate::error::ApiError;
 use crate::types::*;
@@ -14,14 +14,12 @@ impl GrammersAdapter {
         &self,
         file_id: &str,
     ) -> Result<DownloadedFile, ApiError> {
-        let id: i64 = file_id
-            .parse()
-            .map_err(|_| ApiError::Unknown(format!("invalid file_id: {}", file_id)))?;
+        let packed = PackedFileId::decode(file_id)?;
 
         let input_location: tl::enums::InputFileLocation = tl::types::InputDocumentFileLocation {
-            id,
-            access_hash: 0,
-            file_reference: Vec::new(),
+            id: packed.id,
+            access_hash: packed.access_hash,
+            file_reference: packed.file_reference,
             thumb_size: String::new(),
         }
         .into();
@@ -290,7 +288,7 @@ impl GrammersAdapter {
         let peer = self.resolve(chat_id)?;
         let mut tl_media: Vec<tl::enums::InputSingleMedia> = Vec::new();
 
-        for (idx, item) in media.iter().enumerate() {
+        for item in &media {
             let (source, caption, pm, is_photo) = match item {
                 MediaGroupItem::Photo {
                     source,
@@ -420,7 +418,7 @@ impl GrammersAdapter {
             tl_media.push(
                 tl::types::InputSingleMedia {
                     media: input_media,
-                    random_id: rand_i64() + idx as i64,
+                    random_id: rand_i64(),
                     message,
                     entities,
                 }

@@ -5,6 +5,7 @@
 use grammers_client::{tl, update::Update};
 use grammers_session::types::PeerRef;
 
+use crate::adapter::helpers::PackedFileId;
 use crate::types::*;
 
 /// Convert a raw grammers Update into a blazegram IncomingUpdate + PeerRef.
@@ -261,8 +262,13 @@ fn convert_media(m: &tl::types::Message, _user: &UserInfo) -> Option<UpdateKind>
         // ── Photo ──
         tl::enums::MessageMedia::Photo(photo) => {
             if let Some(tl::enums::Photo::Photo(p)) = &photo.photo {
+                let packed = PackedFileId {
+                    id: p.id,
+                    access_hash: p.access_hash,
+                    file_reference: p.file_reference.clone(),
+                };
                 return Some(UpdateKind::Photo {
-                    file_id: p.id.to_string(),
+                    file_id: packed.encode(),
                     file_unique_id: p.id.to_string(),
                     caption: non_empty(&m.message),
                 });
@@ -278,7 +284,12 @@ fn convert_media(m: &tl::types::Message, _user: &UserInfo) -> Option<UpdateKind>
             };
 
             let attrs = &d.attributes;
-            let file_id = d.id.to_string();
+            let packed = PackedFileId {
+                id: d.id,
+                access_hash: d.access_hash,
+                file_reference: d.file_reference.clone(),
+            };
+            let file_id = packed.encode();
             let file_unique_id = d.id.to_string();
 
             // Check attributes to determine the exact type

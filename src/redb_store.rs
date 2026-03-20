@@ -10,7 +10,7 @@
 //! ```
 
 use async_trait::async_trait;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ impl RedbStore {
         let Ok(table) = txn.open_table(STATE_TABLE) else {
             return 0;
         };
-        table.iter().into_iter().flatten().count()
+        table.len().unwrap_or(0) as usize
     }
 
     /// Is empty.
@@ -132,11 +132,9 @@ impl StateStore for RedbStore {
                 .map_err(|e| format!("redb open table: {e}"))?;
             let ids: Vec<ChatId> = table
                 .iter()
-                .into_iter()
-                .flatten()
-                .filter_map(|r| r.ok())
-                .map(|(k, _)| ChatId(k.value()))
-                .collect();
+                .map_err(|e| format!("redb iter: {e}"))?
+                .map(|r| r.map(|(k, _)| ChatId(k.value())).map_err(|e| format!("redb row: {e}")))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(ids)
         })
         .await

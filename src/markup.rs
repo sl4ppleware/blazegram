@@ -53,7 +53,7 @@ pub fn render(input: &str) -> String {
                         if !lang.is_empty() {
                             result.push_str(&format!(
                                 "<pre><code class=\"language-{}\">{}</code></pre>",
-                                escape(lang),
+                                escape_attr(lang),
                                 escape(code)
                             ));
                         } else {
@@ -161,7 +161,7 @@ pub fn pre(text: &str) -> String {
 pub fn pre_lang(lang: &str, text: &str) -> String {
     format!(
         "<pre><code class=\"language-{}\">{}</code></pre>",
-        escape(lang),
+        escape_attr(lang),
         escape(text)
     )
 }
@@ -277,5 +277,26 @@ mod tests {
             render("*bold* and _italic_ and `code`"),
             "<b>bold</b> and <i>italic</i> and <code>code</code>"
         );
+    }
+
+    #[test]
+    fn test_code_block_lang_attr_escaped() {
+        let input = "```x\" onmouseover=\"alert(1)\nmalicious```";
+        let html = render(input);
+        assert!(
+            html.contains("&quot;"),
+            "double quotes in language name must be escaped as &quot;"
+        );
+        assert!(
+            !html.contains("onmouseover\""),
+            "attribute injection must be prevented"
+        );
+    }
+
+    #[test]
+    fn test_pre_lang_escapes_quotes() {
+        let html = pre_lang("x\" onclick=\"alert", "code");
+        assert!(html.contains("&quot;"));
+        assert!(!html.contains("onclick\""));
     }
 }

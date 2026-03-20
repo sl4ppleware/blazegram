@@ -142,6 +142,9 @@ impl ConversationBuilder {
         screen_fn: impl Fn(&ConversationData, &str) -> Screen + Send + Sync + 'static,
         input_fn: Option<StepInputFn>,
     ) -> Self {
+        if self.step_index.contains_key(name) {
+            panic!("duplicate conversation step name: '{}'", name);
+        }
         let idx = self.steps.len();
         self.step_index.insert(name.to_string(), idx);
         self.steps.push(ConversationStep {
@@ -394,5 +397,13 @@ mod tests {
             .on_complete(Arc::new(|_ctx, _data| Box::pin(async { Ok(()) })))
             .build();
         assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate conversation step name: 'a'")]
+    fn duplicate_step_name_panics() {
+        Conversation::builder("dup")
+            .step("a", |_data, _lang| Screen::text("a", "A").build(), None)
+            .step("a", |_data, _lang| Screen::text("a2", "A2").build(), None);
     }
 }

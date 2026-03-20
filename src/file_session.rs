@@ -94,6 +94,7 @@ impl FileSession {
             return Ok(()); // nothing changed
         }
 
+        let _guard = self.flush_lock.lock().await;
         // Extract SessionData from the inner MemorySession.
         // MemorySession stores SessionData in a Mutex, we access it via
         // the Session trait methods.
@@ -101,7 +102,6 @@ impl FileSession {
 
         let bytes = serde_json::to_vec_pretty(&snap)?;
         let tmp = self.path.with_extension("session.tmp");
-        let _guard = self.flush_lock.lock().await;
         tokio::fs::write(&tmp, &bytes).await?;
         tokio::fs::rename(&tmp, &self.path).await?;
         tracing::debug!(path = %self.path.display(), "session flushed");

@@ -296,34 +296,65 @@ impl GrammersAdapter {
             access_hash: user_peer.auth.hash(),
         }
         .into();
+
+        // Fetch current admin rights so we don't reset them
+        let admin_rights = match self
+            .client
+            .invoke(&tl::functions::channels::GetParticipant {
+                channel: peer.into(),
+                participant: tl::types::InputPeerUser {
+                    user_id: user_peer.id.bare_id(),
+                    access_hash: user_peer.auth.hash(),
+                }
+                .into(),
+            })
+            .await
+        {
+            Ok(result) => {
+                let tl::enums::channels::ChannelParticipant::Participant(p) = result;
+                match p.participant {
+                    tl::enums::ChannelParticipant::Admin(admin) => admin.admin_rights,
+                    // User is not admin — use all-true as safe fallback
+                    _ => Self::all_true_admin_rights().into(),
+                }
+            }
+            // Failed to fetch — preserve everything as safe fallback
+            Err(_) => Self::all_true_admin_rights().into(),
+        };
+
         self.client
             .invoke(&tl::functions::channels::EditAdmin {
                 channel: peer.into(),
                 user_id: input_user,
-                admin_rights: tl::types::ChatAdminRights {
-                    change_info: false,
-                    post_messages: false,
-                    edit_messages: false,
-                    delete_messages: false,
-                    ban_users: false,
-                    invite_users: false,
-                    pin_messages: false,
-                    add_admins: false,
-                    anonymous: false,
-                    manage_call: false,
-                    other: true,
-                    manage_topics: false,
-                    post_stories: false,
-                    edit_stories: false,
-                    delete_stories: false,
-                    manage_direct_messages: false,
-                }
-                .into(),
+                admin_rights,
                 rank: custom_title.to_string(),
             })
             .await
             .map_err(Self::convert_error)?;
         Ok(())
+    }
+
+    /// All-true admin rights — used as a safe fallback when we can't fetch
+    /// the current rights (preserves all permissions rather than revoking).
+    fn all_true_admin_rights() -> tl::types::ChatAdminRights {
+        tl::types::ChatAdminRights {
+            change_info: true,
+            post_messages: true,
+            edit_messages: true,
+            delete_messages: true,
+            ban_users: true,
+            invite_users: true,
+            pin_messages: true,
+            add_admins: true,
+            anonymous: false,
+            manage_call: true,
+            other: true,
+            manage_topics: true,
+            post_stories: true,
+            edit_stories: true,
+            delete_stories: true,
+            manage_direct_messages: true,
+        }
     }
 
     pub(crate) async fn impl_approve_chat_join_request(
@@ -741,7 +772,7 @@ impl GrammersAdapter {
                 legacy_revoke_permanent: false,
                 request_needed: false,
                 peer: peer.into(),
-                expire_date: expire_date.map(|d| d as i32),
+                expire_date: expire_date.map(|d| d.min(i32::MAX as i64) as i32),
                 usage_limit: member_limit,
                 title: None,
                 subscription_pricing: None,

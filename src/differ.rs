@@ -220,7 +220,9 @@ impl Differ {
                 });
             } else {
                 // Incompatible types — delete old, send new
-                to_delete.push(old.message_id);
+                if !frozen_messages.contains(&old.message_id) {
+                    to_delete.push(old.message_id);
+                }
                 send_ops.push(DiffOp::Send {
                     content: new.content.clone(),
                     send_options: send_opts.clone(),
@@ -444,6 +446,48 @@ mod tests {
         assert!(
             ops.iter().any(|op| matches!(op, DiffOp::Send { .. })),
             "should resend even if same content"
+        );
+    }
+
+    #[test]
+    fn test_frozen_not_deleted_on_incompatible_edit_in_place() {
+        // Old: text at index 0 (frozen), new: photo at index 0
+        // Incompatible types in edit-in-place path — frozen msg must NOT be deleted
+        let text = text_content("hello");
+        let old = vec![TrackedMessage::from_content(MessageId(1), &text)];
+        let photo_content = MessageContent::Photo {
+            source: FileSource::FileId("photo123".into()),
+            caption: None,
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            spoiler: false,
+        };
+        let screen = Screen {
+            id: ScreenId::from("test"),
+            messages: vec![ScreenMessage {
+                content: photo_content,
+            }],
+            input: None,
+            typing_action: None,
+            protect_content: false,
+            reply_keyboard: None,
+            reply_to: None,
+        };
+        let frozen = vec![MessageId(1)];
+        // No pending user messages → edit-in-place path
+        let ops = Differ::diff_with_frozen(&old, &screen, &[], &frozen);
+        for op in &ops {
+            if let DiffOp::Delete { message_ids } = op {
+                assert!(
+                    !message_ids.contains(&MessageId(1)),
+                    "frozen message must not be deleted even on incompatible type change"
+                );
+            }
+        }
+        // Should still send the new content
+        assert!(
+            ops.iter().any(|op| matches!(op, DiffOp::Send { .. })),
+            "new content should still be sent"
         );
     }
 }

@@ -350,7 +350,10 @@ impl TestApp {
 
         match err_rx.await {
             Ok(Some(e)) => Err(e),
-            _ => Ok(()),
+            Ok(None) => Ok(()),
+            Err(_) => Err(HandlerError::Internal(anyhow::anyhow!(
+                "handler panicked during test"
+            ))),
         }
     }
 

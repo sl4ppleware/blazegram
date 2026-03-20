@@ -166,6 +166,7 @@ impl InMemoryStore {
         let store = Arc::clone(self);
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(interval);
+            tick.tick().await; // skip the first immediate tick
             loop {
                 tick.tick().await;
                 if let Err(e) = store.snapshot(&path).await {

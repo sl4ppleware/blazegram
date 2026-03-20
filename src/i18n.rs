@@ -234,8 +234,12 @@ impl Default for I18n {
 // ──────────────────────────────────────────────────
 
 /// Set the global I18n instance. Call once at startup.
+///
+/// Logs a warning if called more than once (only the first call takes effect).
 pub fn set_i18n(i: I18n) {
-    let _ = I18N.set(i);
+    if I18N.set(i).is_err() {
+        tracing::warn!("set_i18n() called more than once — ignoring (first call wins)");
+    }
 }
 
 /// Get the global I18n (framework defaults if nothing was loaded).

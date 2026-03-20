@@ -6,6 +6,36 @@ use super::GrammersAdapter;
 use crate::error::ApiError;
 use crate::types::*;
 
+// ─── Packed file ID ───
+
+/// Compact encoding of a Telegram file location (id + access_hash + file_reference).
+///
+/// Serialised with `postcard` and encoded as `BASE64URL_NOPAD` to produce a
+/// string suitable for use as a `file_id`.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub(crate) struct PackedFileId {
+    pub id: i64,
+    pub access_hash: i64,
+    pub file_reference: Vec<u8>,
+}
+
+impl PackedFileId {
+    /// Encode into a URL-safe base64 string.
+    pub fn encode(&self) -> String {
+        let bytes = postcard::to_allocvec(self).expect("PackedFileId serialization cannot fail");
+        data_encoding::BASE64URL_NOPAD.encode(&bytes)
+    }
+
+    /// Decode from a URL-safe base64 string.
+    pub fn decode(s: &str) -> Result<Self, ApiError> {
+        let bytes = data_encoding::BASE64URL_NOPAD
+            .decode(s.as_bytes())
+            .map_err(|_| ApiError::Unknown(format!("invalid file_id encoding: {s}")))?;
+        postcard::from_bytes(&bytes)
+            .map_err(|_| ApiError::Unknown(format!("corrupt file_id payload: {s}")))
+    }
+}
+
 // ─── User / peer resolution ───
 
 impl GrammersAdapter {
@@ -213,14 +243,44 @@ pub(super) fn extract_all_msg_ids(updates: &tl::enums::Updates) -> Vec<i32> {
     ids
 }
 
-/// Generate a pseudo-random i64 for MTProto random_id fields.
+/// Generate a random i64 for MTProto `random_id` fields.
+///
+/// Uses `fastrand`'s thread-local RNG, seeded from system entropy.
 pub(super) fn rand_i64() -> i64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::SystemTime;
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let d = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system clock before UNIX epoch");
-    let cnt = COUNTER.fetch_add(1, Ordering::Relaxed);
-    (d.as_nanos() as i64) ^ (cnt as i64 * 6_364_136_223_846_793_005 + 1)
+    fastrand::i64(..)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packed_file_id_roundtrip() {
+        let original = PackedFileId {
+            id: 1234567890123,
+            access_hash: -9876543210987,
+            file_reference: vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02],
+        };
+        let encoded = original.encode();
+        let decoded = PackedFileId::decode(&encoded).expect("decode should succeed");
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn packed_file_id_empty_file_reference() {
+        let original = PackedFileId {
+            id: 42,
+            access_hash: 0,
+            file_reference: vec![],
+        };
+        let encoded = original.encode();
+        let decoded = PackedFileId::decode(&encoded).expect("decode should succeed");
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn packed_file_id_decode_garbage_fails() {
+        assert!(PackedFileId::decode("not-valid!!!").is_err());
+        assert!(PackedFileId::decode("").is_err());
+    }
 }

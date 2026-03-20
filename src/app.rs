@@ -273,6 +273,18 @@ impl AppBuilder {
         self
     }
 
+    /// Handler for [Web App](https://core.telegram.org/bots/webapps) data.
+    pub fn on_web_app_data(
+        mut self,
+        handler: impl Fn(&mut Ctx, String) -> std::pin::Pin<Box<dyn Future<Output = HandlerResult> + Send + '_>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.router.on_web_app_data(handler);
+        self
+    }
+
     /// Register a multi-step [`Form`].
     pub fn form(mut self, form: Form) -> Self {
         self.forms.insert(form.id.clone(), form);

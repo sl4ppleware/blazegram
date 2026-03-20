@@ -298,7 +298,7 @@ impl MessageContent {
                 caption,
                 keyboard,
                 spoiler,
-                ..
+                parse_mode,
             } => {
                 source.hash(&mut hasher);
                 caption.hash(&mut hasher);
@@ -306,13 +306,14 @@ impl MessageContent {
                     kb.hash(&mut hasher);
                 }
                 spoiler.hash(&mut hasher);
+                parse_mode.hash(&mut hasher);
             }
             Self::Video {
                 source,
                 caption,
                 keyboard,
                 spoiler,
-                ..
+                parse_mode,
             } => {
                 source.hash(&mut hasher);
                 caption.hash(&mut hasher);
@@ -320,13 +321,14 @@ impl MessageContent {
                     kb.hash(&mut hasher);
                 }
                 spoiler.hash(&mut hasher);
+                parse_mode.hash(&mut hasher);
             }
             Self::Animation {
                 source,
                 caption,
                 keyboard,
                 spoiler,
-                ..
+                parse_mode,
             } => {
                 source.hash(&mut hasher);
                 caption.hash(&mut hasher);
@@ -334,13 +336,14 @@ impl MessageContent {
                     kb.hash(&mut hasher);
                 }
                 spoiler.hash(&mut hasher);
+                parse_mode.hash(&mut hasher);
             }
             Self::Document {
                 source,
                 caption,
                 keyboard,
                 filename,
-                ..
+                parse_mode,
             } => {
                 source.hash(&mut hasher);
                 caption.hash(&mut hasher);
@@ -348,6 +351,7 @@ impl MessageContent {
                     kb.hash(&mut hasher);
                 }
                 filename.hash(&mut hasher);
+                parse_mode.hash(&mut hasher);
             }
             Self::Sticker { source } => {
                 source.hash(&mut hasher);
@@ -547,5 +551,86 @@ impl MessageContent {
             }
         }
         hasher.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_hash_differs_on_parse_mode_photo() {
+        let a = MessageContent::Photo {
+            source: FileSource::FileId("abc".into()),
+            caption: Some("cap".into()),
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            spoiler: false,
+        };
+        let b = MessageContent::Photo {
+            source: FileSource::FileId("abc".into()),
+            caption: Some("cap".into()),
+            parse_mode: ParseMode::MarkdownV2,
+            keyboard: None,
+            spoiler: false,
+        };
+        assert_ne!(a.content_hash(), b.content_hash(), "different parse_mode must produce different hash");
+    }
+
+    #[test]
+    fn content_hash_differs_on_parse_mode_video() {
+        let a = MessageContent::Video {
+            source: FileSource::FileId("v".into()),
+            caption: None,
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            spoiler: false,
+        };
+        let b = MessageContent::Video {
+            source: FileSource::FileId("v".into()),
+            caption: None,
+            parse_mode: ParseMode::None,
+            keyboard: None,
+            spoiler: false,
+        };
+        assert_ne!(a.content_hash(), b.content_hash());
+    }
+
+    #[test]
+    fn content_hash_differs_on_parse_mode_animation() {
+        let a = MessageContent::Animation {
+            source: FileSource::FileId("g".into()),
+            caption: None,
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            spoiler: false,
+        };
+        let b = MessageContent::Animation {
+            source: FileSource::FileId("g".into()),
+            caption: None,
+            parse_mode: ParseMode::MarkdownV2,
+            keyboard: None,
+            spoiler: false,
+        };
+        assert_ne!(a.content_hash(), b.content_hash());
+    }
+
+    #[test]
+    fn content_hash_differs_on_parse_mode_document() {
+        let a = MessageContent::Document {
+            source: FileSource::FileId("d".into()),
+            caption: None,
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            filename: None,
+        };
+        let b = MessageContent::Document {
+            source: FileSource::FileId("d".into()),
+            caption: None,
+            parse_mode: ParseMode::None,
+            keyboard: None,
+            filename: None,
+        };
+        assert_ne!(a.content_hash(), b.content_hash());
     }
 }

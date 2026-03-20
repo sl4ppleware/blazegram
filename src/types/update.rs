@@ -185,17 +185,19 @@ impl IncomingUpdate {
             UpdateKind::Message { text: Some(text) } => {
                 let text = text.trim();
                 let rest = text.strip_prefix("/start")?;
-                let rest = if let Some(after_at) = rest.strip_prefix('@') {
+                // Must be exactly /start, /start payload, or /start@bot payload
+                let rest = if rest.is_empty() {
+                    return None; // bare /start — no payload
+                } else if let Some(after_at) = rest.strip_prefix('@') {
+                    // /start@botname payload
                     after_at.find(' ').map(|i| &after_at[i..]).unwrap_or("")
-                } else {
+                } else if rest.starts_with(' ') {
                     rest
+                } else {
+                    return None; // /starting, /starter etc — not a deep link
                 };
                 let payload = rest.trim();
-                if payload.is_empty() {
-                    None
-                } else {
-                    Some(payload)
-                }
+                if payload.is_empty() { None } else { Some(payload) }
             }
             _ => None,
         }
@@ -329,3 +331,51 @@ pub struct ReceivedMedia {
 // since we use super::chat::ValidatorFn. But the type alias ValidatorFn is in chat.rs.
 // Actually we don't use ValidatorFn directly in this file — it's only used via InputSpec.
 // InputSpec is in chat.rs, so this file is fine.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ChatId, MessageId, UserId};
+
+    fn make_msg(text: &str) -> IncomingUpdate {
+        IncomingUpdate {
+            chat_id: ChatId(1),
+            user: UserInfo {
+                id: UserId(1),
+                first_name: "Test".into(),
+                last_name: None,
+                username: None,
+                language_code: None,
+            },
+            message_id: Some(MessageId(1)),
+            kind: UpdateKind::Message {
+                text: Some(text.into()),
+            },
+        }
+    }
+
+    #[test]
+    fn deep_link_with_payload() {
+        assert_eq!(make_msg("/start payload").deep_link(), Some("payload"));
+    }
+
+    #[test]
+    fn deep_link_with_bot_name() {
+        assert_eq!(make_msg("/start@bot payload").deep_link(), Some("payload"));
+    }
+
+    #[test]
+    fn deep_link_bare_start_is_none() {
+        assert_eq!(make_msg("/start").deep_link(), None);
+    }
+
+    #[test]
+    fn deep_link_starting_not_matched() {
+        assert_eq!(make_msg("/starting something").deep_link(), None);
+    }
+
+    #[test]
+    fn deep_link_starter_not_matched() {
+        assert_eq!(make_msg("/starter foo").deep_link(), None);
+    }
+}

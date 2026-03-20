@@ -15,7 +15,9 @@ pub struct InlineKeyboard {
 
 impl Hash for InlineKeyboard {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.rows.len().hash(state);
         for row in &self.rows {
+            row.len().hash(state);
             for btn in row {
                 btn.hash(state);
             }
@@ -156,6 +158,9 @@ impl KeyboardBuilder {
         I: IntoIterator,
         F: Fn(I::Item) -> (String, String),
     {
+        if columns == 0 {
+            return self;
+        }
         let mut count = 0;
         for item in items {
             let (text, data) = f(item);
@@ -338,5 +343,35 @@ mod tests {
         // First page: [1/3] [>]
         assert_eq!(kb.rows.len(), 1);
         assert_eq!(kb.rows[0].len(), 2); // counter + next
+    }
+
+    #[test]
+    fn grid_zero_columns_no_panic() {
+        let items = vec![("a", "1"), ("b", "2")];
+        let kb = KeyboardBuilder::new()
+            .grid(items, 0, |(t, d)| (t.to_string(), d.to_string()))
+            .build();
+        assert!(kb.rows.is_empty(), "grid(0) should return builder unchanged");
+    }
+
+    #[test]
+    fn keyboard_hash_encodes_row_boundaries() {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        // [[A,B],[C]] vs [[A],[B,C]]
+        let kb1 = KeyboardBuilder::new()
+            .button("A", "a").button("B", "b").row()
+            .button("C", "c").build();
+        let kb2 = KeyboardBuilder::new()
+            .button("A", "a").row()
+            .button("B", "b").button("C", "c").build();
+
+        let hash = |kb: &InlineKeyboard| {
+            let mut h = DefaultHasher::new();
+            kb.hash(&mut h);
+            h.finish()
+        };
+        assert_ne!(hash(&kb1), hash(&kb2), "different row layouts must produce different hashes");
     }
 }

@@ -13,7 +13,7 @@
 
 mod admin;
 mod forum;
-mod helpers;
+pub(crate) mod helpers;
 mod media;
 mod send;
 mod settings;
