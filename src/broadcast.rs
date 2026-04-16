@@ -176,7 +176,67 @@ fn add_dismiss_button(content: MessageContent, text: &str, callback: &str) -> Me
                 spoiler,
             }
         }
-        other => other, // sticker, location etc — no keyboard support
+        MessageContent::Video {
+            source,
+            caption,
+            parse_mode,
+            keyboard,
+            spoiler,
+        } => {
+            let mut kb = keyboard.unwrap_or_else(|| InlineKeyboard { rows: vec![] });
+            kb.rows.push(vec![crate::keyboard::InlineButton {
+                text: text.to_string(),
+                action: crate::keyboard::ButtonAction::Callback(callback.to_string()),
+            }]);
+            MessageContent::Video {
+                source,
+                caption,
+                parse_mode,
+                keyboard: Some(kb),
+                spoiler,
+            }
+        }
+        MessageContent::Animation {
+            source,
+            caption,
+            parse_mode,
+            keyboard,
+            spoiler,
+        } => {
+            let mut kb = keyboard.unwrap_or_else(|| InlineKeyboard { rows: vec![] });
+            kb.rows.push(vec![crate::keyboard::InlineButton {
+                text: text.to_string(),
+                action: crate::keyboard::ButtonAction::Callback(callback.to_string()),
+            }]);
+            MessageContent::Animation {
+                source,
+                caption,
+                parse_mode,
+                keyboard: Some(kb),
+                spoiler,
+            }
+        }
+        MessageContent::Document {
+            source,
+            caption,
+            parse_mode,
+            keyboard,
+            filename,
+        } => {
+            let mut kb = keyboard.unwrap_or_else(|| InlineKeyboard { rows: vec![] });
+            kb.rows.push(vec![crate::keyboard::InlineButton {
+                text: text.to_string(),
+                action: crate::keyboard::ButtonAction::Callback(callback.to_string()),
+            }]);
+            MessageContent::Document {
+                source,
+                caption,
+                parse_mode,
+                keyboard: Some(kb),
+                filename,
+            }
+        }
+        other => other, // sticker, location — no keyboard support
     }
 }
 
@@ -225,6 +285,27 @@ mod tests {
             assert_eq!(kb.rows[1][0].text, "Dismiss");
         } else {
             panic!("Expected Text content");
+        }
+    }
+
+    #[test]
+    fn add_dismiss_to_video() {
+        let content = MessageContent::Video {
+            source: FileSource::FileId("vid123".into()),
+            caption: Some("Watch this".into()),
+            parse_mode: ParseMode::Html,
+            keyboard: None,
+            spoiler: false,
+        };
+        let result = add_dismiss_button(content, "Dismiss", "__dismiss");
+        if let MessageContent::Video { keyboard, caption, spoiler, .. } = &result {
+            let kb = keyboard.as_ref().unwrap();
+            assert_eq!(kb.rows.len(), 1);
+            assert_eq!(kb.rows[0][0].text, "Dismiss");
+            assert_eq!(caption.as_deref(), Some("Watch this"));
+            assert!(!spoiler);
+        } else {
+            panic!("Expected Video content");
         }
     }
 
