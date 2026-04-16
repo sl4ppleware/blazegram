@@ -149,8 +149,10 @@ impl DiffExecutor {
                     for del_id in &message_ids {
                         tracked.retain(|t| t.message_id != *del_id);
                     }
-                    // Best effort — messages may already be deleted
-                    let _ = bot.delete_messages(chat_id, message_ids).await;
+                    // Telegram limits deleteMessages to 100 IDs per call.
+                    for chunk in message_ids.chunks(100) {
+                        let _ = bot.delete_messages(chat_id, chunk.to_vec()).await;
+                    }
                 }
             }
         }

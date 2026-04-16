@@ -57,7 +57,18 @@ impl ChatSerializer {
 
     /// GC: remove mutexes for idle chats.
     /// Only evicts if strong_count == 1 (no clones exist outside the DashMap).
+    /// Two-phase: collect keys first, then remove — avoids holding DashMap shard
+    /// locks during retain (which would deadlock with concurrent serialize() calls).
     pub fn gc(&self) {
-        self.locks.retain(|_, mutex| Arc::strong_count(mutex) > 1);
+        let stale: Vec<ChatId> = self
+            .locks
+            .iter()
+            .filter(|entry| Arc::strong_count(entry.value()) <= 1)
+            .map(|entry| *entry.key())
+            .collect();
+        for key in stale {
+            // Re-check under removal — another task may have cloned between collect and remove
+            self.locks.remove_if(&key, |_, mutex| Arc::strong_count(mutex) <= 1);
+        }
     }
 }

@@ -921,14 +921,8 @@ async fn run_form_step(form: &Form, ctx: &mut Ctx, update: &IncomingUpdate) -> H
     let step_idx: usize = ctx.get("__form_step").unwrap_or(0);
     let mut form_data: FormData = ctx.get("__form_data").unwrap_or_default();
 
-    if let Some(mid) = update.message_id {
-        match &update.kind {
-            UpdateKind::Message { .. } | UpdateKind::Photo { .. } => {
-                ctx.state.pending_user_messages.push(mid);
-            }
-            _ => {}
-        }
-    }
+    // NOTE: pending_user_messages push is handled by router.route() if we fall through
+    // (i.e. /command cancels form). Push here only for messages we handle ourselves.
 
     match &update.kind {
         UpdateKind::CallbackQuery {
@@ -970,10 +964,15 @@ async fn run_form_step(form: &Form, ctx: &mut Ctx, update: &IncomingUpdate) -> H
 
         UpdateKind::Message { text: Some(text) } => {
             if text.starts_with('/') {
+                // /command cancels form — falls through to router which pushes mid.
                 ctx.remove("__form_id");
                 ctx.remove("__form_step");
                 ctx.remove("__form_data");
                 return Ok(());
+            }
+            // Non-command: we handle it, push mid ourselves.
+            if let Some(mid) = update.message_id {
+                ctx.state.pending_user_messages.push(mid);
             }
             if step_idx < form.steps.len() {
                 let step = &form.steps[step_idx];
@@ -998,6 +997,9 @@ async fn run_form_step(form: &Form, ctx: &mut Ctx, update: &IncomingUpdate) -> H
         }
 
         UpdateKind::Photo { file_id, .. } => {
+            if let Some(mid) = update.message_id {
+                ctx.state.pending_user_messages.push(mid);
+            }
             if step_idx < form.steps.len() {
                 let step = &form.steps[step_idx];
                 if matches!(step.parser, crate::form::FieldParser::Photo) {
@@ -1045,14 +1047,8 @@ async fn run_conversation_step(
     let step_idx: usize = ctx.get("__conv_step").unwrap_or(0);
     let mut conv_data: ConversationData = ctx.get("__conv_data").unwrap_or_default();
 
-    if let Some(mid) = update.message_id {
-        match &update.kind {
-            UpdateKind::Message { .. } | UpdateKind::Photo { .. } => {
-                ctx.state.pending_user_messages.push(mid);
-            }
-            _ => {}
-        }
-    }
+    // NOTE: pending_user_messages push is handled by router.route() if we fall through
+    // (i.e. /command cancels conversation). Push here only for messages we handle ourselves.
 
     match &update.kind {
         UpdateKind::CallbackQuery {
@@ -1100,10 +1096,15 @@ async fn run_conversation_step(
 
         UpdateKind::Message { text: Some(text) } => {
             if text.starts_with('/') {
+                // /command cancels conversation — falls through to router which pushes mid.
                 ctx.remove("__conv_id");
                 ctx.remove("__conv_step");
                 ctx.remove("__conv_data");
                 return Ok(());
+            }
+            // Non-command: we handle it, push mid ourselves.
+            if let Some(mid) = update.message_id {
+                ctx.state.pending_user_messages.push(mid);
             }
             if step_idx < conv.steps.len() {
                 let step = &conv.steps[step_idx];

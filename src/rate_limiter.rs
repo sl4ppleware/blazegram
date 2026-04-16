@@ -15,7 +15,7 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use crate::bot_api::{BotApi, SendOptions};
@@ -38,7 +38,6 @@ const GLOBAL_WINDOW: Duration = Duration::from_secs(1);
 // ─── Metrics ───
 
 /// Rate limiter metrics, readable at any time.
-#[derive(Debug)]
 pub struct RateLimiterMetrics {
     /// Total API calls attempted (includes retries).
     pub total_calls: AtomicU64,
@@ -48,19 +47,36 @@ pub struct RateLimiterMetrics {
     pub flood_waits: AtomicU64,
     /// Requests in the current 1-second window.
     pub current_window_count: AtomicU32,
-    /// Configured max RPS (may be dynamically adjusted).
-    pub effective_rps: AtomicU32,
+    /// Current effective max RPS. Shared with GlobalLimiter — always in sync.
+    effective_rps: Arc<AtomicU32>,
+}
+
+impl std::fmt::Debug for RateLimiterMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RateLimiterMetrics")
+            .field("total_calls", &self.total_calls.load(Ordering::Relaxed))
+            .field("throttled_calls", &self.throttled_calls.load(Ordering::Relaxed))
+            .field("flood_waits", &self.flood_waits.load(Ordering::Relaxed))
+            .field("current_window_count", &self.current_window_count.load(Ordering::Relaxed))
+            .field("effective_rps", &self.effective_rps.load(Ordering::Relaxed))
+            .finish()
+    }
 }
 
 impl RateLimiterMetrics {
-    fn new(rps: u32) -> Self {
+    fn new(effective_rps: Arc<AtomicU32>) -> Self {
         Self {
             total_calls: AtomicU64::new(0),
             throttled_calls: AtomicU64::new(0),
             flood_waits: AtomicU64::new(0),
             current_window_count: AtomicU32::new(0),
-            effective_rps: AtomicU32::new(rps),
+            effective_rps,
         }
+    }
+
+    /// Read the current effective RPS.
+    pub fn effective_rps(&self) -> u32 {
+        self.effective_rps.load(Ordering::Relaxed)
     }
 
     /// Current utilization as a percentage (0–100+).
@@ -161,23 +177,23 @@ impl ChatBucket {
 
 // ─── Global Sliding Window ───
 
-/// Global rate limiter using a sliding-window counter with a semaphore for backpressure.
+/// Global rate limiter using a sliding-window counter with Notify for wake-up.
 struct GlobalLimiter {
-    /// Semaphore with permits = max RPS. Permits are released when the window slides.
-    semaphore: Arc<Semaphore>,
     /// Timestamps of recent requests within the current window.
     timestamps: Mutex<Vec<Instant>>,
+    /// Wakes waiters when a slot opens (timestamp expires).
+    notify: tokio::sync::Notify,
     /// Base (configured) max RPS.
     base_rps: u32,
-    /// Current effective max RPS (may be reduced after floods).
+    /// Current effective max RPS (may be reduced after floods). Shared with metrics.
     effective_rps: Arc<AtomicU32>,
 }
 
 impl GlobalLimiter {
     fn new(rps: u32, effective_rps: Arc<AtomicU32>) -> Self {
         Self {
-            semaphore: Arc::new(Semaphore::new(rps as usize)),
             timestamps: Mutex::new(Vec::with_capacity(rps as usize * 2)),
+            notify: tokio::sync::Notify::new(),
             base_rps: rps,
             effective_rps,
         }
@@ -186,34 +202,34 @@ impl GlobalLimiter {
     /// Wait until a global slot is available, then record the request.
     async fn acquire(&self) {
         loop {
-            // Clean up expired timestamps and release their permits.
             {
                 let mut ts = self.timestamps.lock().await;
                 let cutoff = Instant::now() - GLOBAL_WINDOW;
-                let before = ts.len();
                 ts.retain(|t| *t > cutoff);
-                let released = before - ts.len();
-                if released > 0 {
-                    // Don't exceed the semaphore's max permits.
-                    let max = self.effective_rps.load(Ordering::Relaxed) as usize;
-                    let available = self.semaphore.available_permits();
-                    let to_add = released.min(max.saturating_sub(available));
-                    if to_add > 0 {
-                        self.semaphore.add_permits(to_add);
-                    }
-                }
 
-                let current_count = ts.len();
                 let limit = self.effective_rps.load(Ordering::Relaxed) as usize;
-
-                if current_count < limit {
+                if ts.len() < limit {
                     ts.push(Instant::now());
                     return;
                 }
-            }
 
-            // Window is full — wait a bit and retry.
-            sleep(Duration::from_millis(10)).await;
+                // Calculate how long until the oldest timestamp expires.
+                if let Some(oldest) = ts.first() {
+                    let wait = GLOBAL_WINDOW.saturating_sub(oldest.elapsed());
+                    if !wait.is_zero() {
+                        // Drop lock before sleeping.
+                        drop(ts);
+                        // Wait for either the timeout or a notify (flood relax).
+                        tokio::select! {
+                            _ = sleep(wait) => {},
+                            _ = self.notify.notified() => {},
+                        }
+                        continue;
+                    }
+                }
+            }
+            // Fallback: shouldn't reach here, but yield to avoid spin.
+            sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -232,6 +248,7 @@ impl GlobalLimiter {
             let relaxed = ((current as f64) * (1.0 + FLOOD_RELAX_STEP)) as u32;
             let new_rps = relaxed.min(self.base_rps);
             self.effective_rps.store(new_rps, Ordering::Relaxed);
+            self.notify.notify_waiters();
         }
     }
 
@@ -258,15 +275,14 @@ impl<B: BotApi> RateLimitedBotApi<B> {
     /// Wrap a BotApi with adaptive rate limiting.
     /// `rps` = max global requests per second (30 for public API, higher for local).
     pub fn new(inner: B, rps: u32) -> Self {
-        let metrics = Arc::new(RateLimiterMetrics::new(rps));
         let effective_rps = Arc::new(AtomicU32::new(rps));
-        metrics.effective_rps.store(rps, Ordering::Relaxed);
+        let metrics = Arc::new(RateLimiterMetrics::new(Arc::clone(&effective_rps)));
 
         Self {
             inner,
-            global: GlobalLimiter::new(rps, effective_rps),
+            global: GlobalLimiter::new(rps, Arc::clone(&effective_rps)),
             chat_buckets: DashMap::new(),
-            metrics: metrics.clone(),
+            metrics,
             last_flood: Mutex::new(None),
         }
     }
@@ -339,12 +355,8 @@ impl<B: BotApi> RateLimitedBotApi<B> {
             "FLOOD_WAIT from Telegram, tightening limits"
         );
 
-        // Tighten global.
+        // Tighten global (effective_rps is shared — metrics see it immediately).
         self.global.on_flood();
-        self.metrics.effective_rps.store(
-            self.global.effective_rps.load(Ordering::Relaxed),
-            Ordering::Relaxed,
-        );
 
         // Tighten per-chat if applicable.
         if let Some(cid) = chat_id {
@@ -360,11 +372,7 @@ impl<B: BotApi> RateLimitedBotApi<B> {
         let last = *self.last_flood.lock().await;
         if let Some(last_time) = last {
             if last_time.elapsed() > FLOOD_RELAX_INTERVAL {
-                self.global.relax();
-                self.metrics.effective_rps.store(
-                    self.global.effective_rps.load(Ordering::Relaxed),
-                    Ordering::Relaxed,
-                );
+                self.global.relax(); // effective_rps is shared — metrics see it immediately
                 // Relax all chat buckets.
                 for mut entry in self.chat_buckets.iter_mut() {
                     entry.value_mut().relax();
@@ -504,10 +512,22 @@ impl_rate_limited_botapi! {
         fn copy_messages(chat_id: ChatId, from_chat_id: ChatId, message_ids: Vec<MessageId>) -> Vec<MessageId>;
         fn send_sticker(chat_id: ChatId, sticker: FileSource) -> SentMessage;
         fn send_location(chat_id: ChatId, latitude: f64, longitude: f64) -> SentMessage;
+        fn send_paid_media(chat_id: ChatId, star_count: i64, media: Vec<PaidMediaInput>, caption: Option<String>, parse_mode: ParseMode, opts: SendOptions) -> SentMessage;
+        fn send_live_location(chat_id: ChatId, latitude: f64, longitude: f64, live_period: i32, opts: SendOptions) -> SentMessage;
+        fn edit_message_live_location(chat_id: ChatId, message_id: MessageId, latitude: f64, longitude: f64) -> ();
+        fn stop_message_live_location(chat_id: ChatId, message_id: MessageId) -> ();
+        fn send_checklist(chat_id: ChatId, title: String, items: Vec<ChecklistItem>, opts: SendOptions) -> SentMessage;
+        fn edit_message_checklist(chat_id: ChatId, message_id: MessageId, title: String, items: Vec<ChecklistItem>) -> ();
+        fn send_message_draft(chat_id: ChatId, text: String, parse_mode: ParseMode) -> ();
         fn create_forum_topic(chat_id: ChatId, title: &str, icon_color: Option<i32>, icon_custom_emoji_id: Option<i64>) -> ForumTopic;
         fn edit_forum_topic(chat_id: ChatId, topic_id: i32, title: Option<&str>, icon_custom_emoji_id: Option<i64>, closed: Option<bool>, hidden: Option<bool>) -> ();
         fn delete_forum_topic(chat_id: ChatId, topic_id: i32) -> ();
         fn unpin_all_forum_topic_messages(chat_id: ChatId, topic_id: i32) -> ();
+        fn send_game(chat_id: ChatId, game_short_name: &str, opts: SendOptions) -> SentMessage;
+        fn set_chat_sticker_set(chat_id: ChatId, sticker_set_name: &str) -> ();
+        fn delete_chat_sticker_set(chat_id: ChatId) -> ();
+        fn approve_suggested_post(chat_id: ChatId, message_id: MessageId) -> ();
+        fn decline_suggested_post(chat_id: ChatId, message_id: MessageId) -> ();
     ]
     bypass: [
         fn answer_callback_query(id: String, text: Option<String>, show_alert: bool) -> ();
@@ -539,6 +559,74 @@ impl_rate_limited_botapi! {
         fn create_invoice_link(invoice: Invoice) -> String;
         fn get_star_transactions(offset: Option<&str>, limit: Option<i32>) -> StarTransactions;
         fn refund_star_payment(user_id: UserId, charge_id: &str) -> ();
+        fn log_out() -> ();
+        fn close() -> ();
+        fn set_user_emoji_status(user_id: UserId, emoji_status_custom_emoji_id: Option<String>, emoji_status_expiration_date: Option<i64>) -> ();
+        fn get_user_profile_audios(user_id: UserId, offset: Option<i32>, limit: Option<i32>) -> UserProfileAudios;
+        fn ban_chat_sender_chat(chat_id: ChatId, sender_chat_id: ChatId) -> ();
+        fn unban_chat_sender_chat(chat_id: ChatId, sender_chat_id: ChatId) -> ();
+        fn set_chat_member_tag(chat_id: ChatId, user_id: UserId, tag: Option<String>) -> ();
+        fn edit_chat_invite_link(chat_id: ChatId, invite_link: &str, name: Option<&str>, expire_date: Option<i64>, member_limit: Option<i32>) -> ChatInviteLink;
+        fn create_chat_subscription_invite_link(chat_id: ChatId, name: Option<&str>, subscription_period: i32, subscription_price: i64) -> ChatInviteLink;
+        fn edit_chat_subscription_invite_link(chat_id: ChatId, invite_link: &str, name: Option<&str>) -> ChatInviteLink;
+        fn get_user_chat_boosts(chat_id: ChatId, user_id: UserId) -> UserChatBoosts;
+        fn set_my_default_administrator_rights(rights: Option<ChatPermissions>, for_channels: Option<bool>) -> ();
+        fn get_my_default_administrator_rights(for_channels: Option<bool>) -> ChatPermissions;
+        fn set_my_profile_photo(photo: FileSource, is_public: Option<bool>) -> ();
+        fn remove_my_profile_photo(file_id: Option<String>) -> ();
+        fn verify_user(user_id: UserId, custom_description: Option<String>) -> ();
+        fn verify_chat(chat_id: ChatId, custom_description: Option<String>) -> ();
+        fn remove_user_verification(user_id: UserId) -> ();
+        fn remove_chat_verification(chat_id: ChatId) -> ();
+        fn get_business_connection(business_connection_id: &str) -> BusinessConnection;
+        fn read_business_message(business_connection_id: &str, chat_id: ChatId, message_id: MessageId) -> ();
+        fn delete_business_messages(business_connection_id: &str, message_ids: Vec<MessageId>) -> ();
+        fn set_business_account_name(business_connection_id: &str, first_name: &str, last_name: Option<&str>) -> ();
+        fn set_business_account_username(business_connection_id: &str, username: Option<&str>) -> ();
+        fn set_business_account_bio(business_connection_id: &str, bio: Option<&str>) -> ();
+        fn set_business_account_profile_photo(business_connection_id: &str, photo: FileSource, is_public: Option<bool>) -> ();
+        fn remove_business_account_profile_photo(business_connection_id: &str, is_public: Option<bool>) -> ();
+        fn set_business_account_gift_settings(business_connection_id: &str, show_gift_button: bool, accepted_gift_types: AcceptedGiftTypes) -> ();
+        fn get_business_account_star_balance(business_connection_id: &str) -> StarBalance;
+        fn transfer_business_account_stars(business_connection_id: &str, star_count: i64) -> ();
+        fn get_business_account_gifts(business_connection_id: &str, exclude_unsaved: Option<bool>, exclude_saved: Option<bool>, exclude_unlimited: Option<bool>, exclude_limited: Option<bool>, exclude_unique: Option<bool>, sort_by_price: Option<bool>, offset: Option<&str>, limit: Option<i32>) -> OwnedGifts;
+        fn get_available_gifts() -> Vec<Gift>;
+        fn send_gift(user_id: UserId, gift_id: String, text: Option<String>, text_parse_mode: Option<ParseMode>) -> ();
+        fn gift_premium_subscription(user_id: UserId, month_count: i32, star_count: i64, text: Option<String>, text_parse_mode: Option<ParseMode>) -> ();
+        fn get_user_gifts(user_id: UserId, offset: Option<&str>, limit: Option<i32>) -> OwnedGifts;
+        fn get_chat_gifts(chat_id: ChatId, offset: Option<&str>, limit: Option<i32>) -> OwnedGifts;
+        fn convert_gift_to_stars(business_connection_id: Option<&str>, owned_gift_id: &str) -> ();
+        fn upgrade_gift(business_connection_id: Option<&str>, owned_gift_id: &str, keep_original_details: Option<bool>, star_count: Option<i64>) -> ();
+        fn transfer_gift(business_connection_id: Option<&str>, owned_gift_id: &str, new_owner_chat_id: ChatId, star_count: Option<i64>) -> ();
+        fn post_story(chat_id: ChatId, content: StoryContent, active_period: i32, caption: Option<String>, parse_mode: Option<ParseMode>) -> Story;
+        fn edit_story(chat_id: ChatId, story_id: i32, content: Option<StoryContent>, caption: Option<String>, parse_mode: Option<ParseMode>) -> Story;
+        fn delete_story(chat_id: ChatId, story_id: i32) -> ();
+        fn get_my_star_balance() -> StarBalance;
+        fn edit_user_star_subscription(user_id: UserId, telegram_payment_charge_id: &str, is_canceled: bool) -> ();
+        fn get_managed_bot_token(bot_id: UserId) -> String;
+        fn replace_managed_bot_token(bot_id: UserId) -> String;
+        fn save_prepared_keyboard_button(user_id: UserId, button: PreparedKeyboardButtonData) -> PreparedKeyboardButton;
+        fn get_sticker_set(name: &str) -> StickerSet;
+        fn get_custom_emoji_stickers(custom_emoji_ids: Vec<String>) -> Vec<StickerInfo>;
+        fn upload_sticker_file(user_id: UserId, sticker: FileSource, sticker_format: StickerFormat) -> TelegramFile;
+        fn create_new_sticker_set(user_id: UserId, name: String, title: String, stickers: Vec<InputSticker>, sticker_type: Option<StickerType>) -> ();
+        fn add_sticker_to_set(user_id: UserId, name: &str, sticker: InputSticker) -> ();
+        fn set_sticker_position_in_set(sticker: &str, position: i32) -> ();
+        fn delete_sticker_from_set(sticker: &str) -> ();
+        fn replace_sticker_in_set(user_id: UserId, name: &str, old_sticker: &str, sticker: InputSticker) -> ();
+        fn set_sticker_emoji_list(sticker: &str, emoji_list: Vec<String>) -> ();
+        fn set_sticker_keywords(sticker: &str, keywords: Vec<String>) -> ();
+        fn set_sticker_mask_position(sticker: &str, mask_position: Option<MaskPosition>) -> ();
+        fn set_sticker_set_title(name: &str, title: &str) -> ();
+        fn set_sticker_set_thumbnail(name: &str, user_id: UserId, thumbnail: Option<FileSource>, format: StickerFormat) -> ();
+        fn set_custom_emoji_sticker_set_thumbnail(name: &str, custom_emoji_id: Option<String>) -> ();
+        fn delete_sticker_set(name: &str) -> ();
+        fn get_forum_topic_icon_stickers() -> Vec<StickerInfo>;
+        fn set_game_score(user_id: UserId, score: i64, chat_id: ChatId, message_id: MessageId, force: bool, disable_edit_message: bool) -> ();
+        fn get_game_high_scores(user_id: UserId, chat_id: ChatId, message_id: MessageId) -> Vec<GameHighScore>;
+        fn answer_web_app_query(web_app_query_id: &str, result: InlineQueryResult) -> SentWebAppMessage;
+        fn save_prepared_inline_message(user_id: UserId, result: InlineQueryResult, allow_user_chats: Option<bool>, allow_bot_chats: Option<bool>, allow_group_chats: Option<bool>, allow_channel_chats: Option<bool>) -> PreparedInlineMessage;
+        fn set_passport_data_errors(user_id: UserId, errors: Vec<PassportElementError>) -> ();
     ]
 }
 

@@ -14,6 +14,7 @@
 use crate::bot_api::SendOptions;
 use crate::screen::{ReplyKeyboardAction, Screen};
 use crate::types::*;
+use std::collections::HashSet;
 
 /// A single operation the differ wants the executor to perform.
 #[derive(Debug, Clone)]
@@ -77,6 +78,7 @@ impl Differ {
     ) -> Vec<DiffOp> {
         let has_user_messages = !pending_user_messages.is_empty();
         let new_messages = &new_screen.messages;
+        let frozen: HashSet<MessageId> = frozen_messages.iter().copied().collect();
 
         let send_opts = SendOptions {
             protect_content: new_screen.protect_content,
@@ -94,11 +96,11 @@ impl Differ {
                 old_messages,
                 new_messages,
                 pending_user_messages,
-                frozen_messages,
+                &frozen,
                 send_opts,
             )
         } else {
-            Self::diff_edit_in_place(old_messages, new_messages, frozen_messages, send_opts)
+            Self::diff_edit_in_place(old_messages, new_messages, &frozen, send_opts)
         };
 
         // Attach reply_keyboard to a Send op that has no inline keyboard,
@@ -150,7 +152,7 @@ impl Differ {
         old_messages: &[TrackedMessage],
         new_messages: &[crate::screen::ScreenMessage],
         pending_user_messages: &[MessageId],
-        frozen_messages: &[MessageId],
+        frozen: &HashSet<MessageId>,
         send_opts: SendOptions,
     ) -> Vec<DiffOp> {
         let mut ops = Vec::new();
@@ -158,7 +160,7 @@ impl Differ {
         // Collect all message IDs to delete (excluding frozen)
         let mut to_delete: Vec<MessageId> = old_messages
             .iter()
-            .filter(|m| !frozen_messages.contains(&m.message_id))
+            .filter(|m| !frozen.contains(&m.message_id))
             .map(|m| m.message_id)
             .collect();
         to_delete.extend_from_slice(pending_user_messages);
@@ -187,7 +189,7 @@ impl Differ {
     fn diff_edit_in_place(
         old_messages: &[TrackedMessage],
         new_messages: &[crate::screen::ScreenMessage],
-        frozen_messages: &[MessageId],
+        frozen: &HashSet<MessageId>,
         send_opts: SendOptions,
     ) -> Vec<DiffOp> {
         let old_len = old_messages.len();
@@ -220,7 +222,7 @@ impl Differ {
                 });
             } else {
                 // Incompatible types — delete old, send new
-                if !frozen_messages.contains(&old.message_id) {
+                if !frozen.contains(&old.message_id) {
                     to_delete.push(old.message_id);
                 }
                 send_ops.push(DiffOp::Send {
@@ -232,7 +234,7 @@ impl Differ {
 
         // Extra old messages → delete (excluding frozen)
         for old in &old_messages[common..] {
-            if !frozen_messages.contains(&old.message_id) {
+            if !frozen.contains(&old.message_id) {
                 to_delete.push(old.message_id);
             }
         }

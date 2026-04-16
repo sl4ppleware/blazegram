@@ -223,7 +223,8 @@ impl Ctx {
             }
         } else {
             // No trigger message (e.g., /command in group) — send new
-            self.bot
+            let sent = self
+                .bot
                 .send_message(
                     self.chat_id,
                     msg.content.clone(),
@@ -234,6 +235,10 @@ impl Ctx {
                 )
                 .await
                 .map_err(HandlerError::Api)?;
+            // Track sent message so future navigate() can edit/delete it.
+            self.state
+                .active_bot_messages
+                .push(TrackedMessage::from_content(sent.message_id, &msg.content));
         }
 
         self.state.current_screen = screen.id;
@@ -574,6 +579,15 @@ impl Ctx {
                             "reply() edit: unsupported content type, skipping"
                         );
                     }
+                }
+                // Update tracked hash so differ stays in sync.
+                if let Some(tracked) = self
+                    .state
+                    .active_bot_messages
+                    .iter_mut()
+                    .find(|t| t.message_id == msg_id)
+                {
+                    *tracked = TrackedMessage::from_content(msg_id, &msg.content);
                 }
             }
             None => {
