@@ -298,7 +298,13 @@ mod tests {
             spoiler: false,
         };
         let result = add_dismiss_button(content, "Dismiss", "__dismiss");
-        if let MessageContent::Video { keyboard, caption, spoiler, .. } = &result {
+        if let MessageContent::Video {
+            keyboard,
+            caption,
+            spoiler,
+            ..
+        } = &result
+        {
             let kb = keyboard.as_ref().unwrap();
             assert_eq!(kb.rows.len(), 1);
             assert_eq!(kb.rows[0][0].text, "Dismiss");

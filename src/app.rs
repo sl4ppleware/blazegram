@@ -1095,12 +1095,11 @@ async fn run_conversation_step(
                             return Ok(());
                         }
                     }
-                } else {
-                    // No custom input fn — store callback data as value
-                    conv_data.insert(step.name.clone(), serde_json::Value::String(data.clone()));
-                    ctx.set("__conv_data", &conv_data);
-                    return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
                 }
+                // No custom input fn — store callback data as value
+                conv_data.insert(step.name.clone(), serde_json::Value::String(data.clone()));
+                ctx.set("__conv_data", &conv_data);
+                return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
             }
         }
 
@@ -1137,12 +1136,11 @@ async fn run_conversation_step(
                             return Ok(());
                         }
                     }
-                } else {
-                    // No custom input fn — store text as value
-                    conv_data.insert(step.name.clone(), serde_json::Value::String(text.clone()));
-                    ctx.set("__conv_data", &conv_data);
-                    return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
                 }
+                // No custom input fn — store text as value
+                conv_data.insert(step.name.clone(), serde_json::Value::String(text.clone()));
+                ctx.set("__conv_data", &conv_data);
+                return advance_conversation_step(conv, ctx, step_idx, conv_data).await;
             }
         }
 

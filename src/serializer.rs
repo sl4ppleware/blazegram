@@ -68,7 +68,8 @@ impl ChatSerializer {
             .collect();
         for key in stale {
             // Re-check under removal — another task may have cloned between collect and remove
-            self.locks.remove_if(&key, |_, mutex| Arc::strong_count(mutex) <= 1);
+            self.locks
+                .remove_if(&key, |_, mutex| Arc::strong_count(mutex) <= 1);
         }
     }
 }

@@ -202,16 +202,11 @@ fn read_until(chars: &mut std::iter::Peekable<std::str::Chars>, delimiter: char)
 fn read_until_double(chars: &mut std::iter::Peekable<std::str::Chars>, delimiter: char) -> String {
     let mut result = String::new();
     while let Some(ch) = chars.next() {
-        if ch == delimiter {
-            if chars.peek() == Some(&delimiter) {
-                chars.next();
-                break;
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
+        if ch == delimiter && chars.peek() == Some(&delimiter) {
+            chars.next();
+            break;
         }
+        result.push(ch);
     }
     result
 }

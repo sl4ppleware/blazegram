@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 // All public items are documented as of 0.4.0.
 #![warn(missing_docs)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, clippy::module_name_repetitions)]
 
 // ─── Macros (must come first — macro_rules! are order-dependent) ───
 

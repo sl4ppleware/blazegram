@@ -660,7 +660,7 @@ impl_mock_botapi! {
             _user_id: UserId,
             _button: PreparedKeyboardButtonData,
         ) -> Result<PreparedKeyboardButton, ApiError> {
-            Ok(PreparedKeyboardButton { id: "pkb_1".to_string(), expiration_date: 9999999999 })
+            Ok(PreparedKeyboardButton { id: "pkb_1".to_string(), expiration_date: 9_999_999_999 })
         }
 
         async fn get_sticker_set(&self, name: &str) -> Result<StickerSet, ApiError> {
@@ -722,7 +722,7 @@ impl_mock_botapi! {
         ) -> Result<PreparedInlineMessage, ApiError> {
             Ok(PreparedInlineMessage {
                 id: "mock_prepared_1".to_string(),
-                expiration_date: 9999999999,
+                expiration_date: 9_999_999_999,
             })
         }
     }

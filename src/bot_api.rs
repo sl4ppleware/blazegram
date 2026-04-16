@@ -859,7 +859,15 @@ pub trait BotApi: Send + Sync + 'static {
         parse_mode: ParseMode,
         opts: SendOptions,
     ) -> Result<SentMessage, ApiError> {
-        not_implemented!("send_paid_media", chat_id, star_count, media, caption, parse_mode, opts)
+        not_implemented!(
+            "send_paid_media",
+            chat_id,
+            star_count,
+            media,
+            caption,
+            parse_mode,
+            opts
+        )
     }
 
     // ─── Live Location ───
@@ -875,7 +883,14 @@ pub trait BotApi: Send + Sync + 'static {
         live_period: i32,
         opts: SendOptions,
     ) -> Result<SentMessage, ApiError> {
-        not_implemented!("send_live_location", chat_id, latitude, longitude, live_period, opts)
+        not_implemented!(
+            "send_live_location",
+            chat_id,
+            latitude,
+            longitude,
+            live_period,
+            opts
+        )
     }
 
     /// Update a live location message.
@@ -886,7 +901,13 @@ pub trait BotApi: Send + Sync + 'static {
         latitude: f64,
         longitude: f64,
     ) -> Result<(), ApiError> {
-        not_implemented!("edit_message_live_location", chat_id, message_id, latitude, longitude)
+        not_implemented!(
+            "edit_message_live_location",
+            chat_id,
+            message_id,
+            latitude,
+            longitude
+        )
     }
 
     /// Stop updating a live location message.
@@ -944,7 +965,12 @@ pub trait BotApi: Send + Sync + 'static {
         emoji_status_custom_emoji_id: Option<String>,
         emoji_status_expiration_date: Option<i64>,
     ) -> Result<(), ApiError> {
-        not_implemented!("set_user_emoji_status", user_id, emoji_status_custom_emoji_id, emoji_status_expiration_date)
+        not_implemented!(
+            "set_user_emoji_status",
+            user_id,
+            emoji_status_custom_emoji_id,
+            emoji_status_expiration_date
+        )
     }
 
     // ─── User Profile Audios (Bot API 9.4+) ───
@@ -1076,21 +1102,14 @@ pub trait BotApi: Send + Sync + 'static {
     }
 
     /// Remove the bot's profile photo.
-    async fn remove_my_profile_photo(
-        &self,
-        file_id: Option<String>,
-    ) -> Result<(), ApiError> {
+    async fn remove_my_profile_photo(&self, file_id: Option<String>) -> Result<(), ApiError> {
         not_implemented!("remove_my_profile_photo", file_id)
     }
 
     // ─── Forum Extras ───
 
     /// Edit the name of the 'General' topic in a forum supergroup.
-    async fn edit_general_forum_topic(
-        &self,
-        chat_id: ChatId,
-        title: &str,
-    ) -> Result<(), ApiError> {
+    async fn edit_general_forum_topic(&self, chat_id: ChatId, title: &str) -> Result<(), ApiError> {
         self.edit_forum_topic(chat_id, 1, Some(title), None, None, None)
             .await
     }
@@ -1268,10 +1287,7 @@ pub trait BotApi: Send + Sync + 'static {
         &self,
         business_connection_id: &str,
     ) -> Result<StarBalance, ApiError> {
-        not_implemented!(
-            "get_business_account_star_balance",
-            business_connection_id
-        )
+        not_implemented!("get_business_account_star_balance", business_connection_id)
     }
 
     /// Transfer Stars from the business account to the bot.
@@ -1542,7 +1558,14 @@ pub trait BotApi: Send + Sync + 'static {
         stickers: Vec<InputSticker>,
         sticker_type: Option<StickerType>,
     ) -> Result<(), ApiError> {
-        not_implemented!("create_new_sticker_set", user_id, name, title, stickers, sticker_type)
+        not_implemented!(
+            "create_new_sticker_set",
+            user_id,
+            name,
+            title,
+            stickers,
+            sticker_type
+        )
     }
 
     /// Add a sticker to an existing set.
@@ -1577,7 +1600,13 @@ pub trait BotApi: Send + Sync + 'static {
         old_sticker: &str,
         sticker: InputSticker,
     ) -> Result<(), ApiError> {
-        not_implemented!("replace_sticker_in_set", user_id, name, old_sticker, sticker)
+        not_implemented!(
+            "replace_sticker_in_set",
+            user_id,
+            name,
+            old_sticker,
+            sticker
+        )
     }
 
     /// Change the emoji list associated with a sticker.
@@ -1620,7 +1649,13 @@ pub trait BotApi: Send + Sync + 'static {
         thumbnail: Option<FileSource>,
         format: StickerFormat,
     ) -> Result<(), ApiError> {
-        not_implemented!("set_sticker_set_thumbnail", name, user_id, thumbnail, format)
+        not_implemented!(
+            "set_sticker_set_thumbnail",
+            name,
+            user_id,
+            thumbnail,
+            format
+        )
     }
 
     /// Set the thumbnail of a custom emoji sticker set.
@@ -1629,7 +1664,11 @@ pub trait BotApi: Send + Sync + 'static {
         name: &str,
         custom_emoji_id: Option<String>,
     ) -> Result<(), ApiError> {
-        not_implemented!("set_custom_emoji_sticker_set_thumbnail", name, custom_emoji_id)
+        not_implemented!(
+            "set_custom_emoji_sticker_set_thumbnail",
+            name,
+            custom_emoji_id
+        )
     }
 
     /// Delete a sticker set.
@@ -1678,7 +1717,15 @@ pub trait BotApi: Send + Sync + 'static {
         force: bool,
         disable_edit_message: bool,
     ) -> Result<(), ApiError> {
-        not_implemented!("set_game_score", user_id, score, chat_id, message_id, force, disable_edit_message)
+        not_implemented!(
+            "set_game_score",
+            user_id,
+            score,
+            chat_id,
+            message_id,
+            force,
+            disable_edit_message
+        )
     }
 
     /// Get game high scores for a user.
@@ -1712,7 +1759,15 @@ pub trait BotApi: Send + Sync + 'static {
         allow_group_chats: Option<bool>,
         allow_channel_chats: Option<bool>,
     ) -> Result<PreparedInlineMessage, ApiError> {
-        not_implemented!("save_prepared_inline_message", user_id, result, allow_user_chats, allow_bot_chats, allow_group_chats, allow_channel_chats)
+        not_implemented!(
+            "save_prepared_inline_message",
+            user_id,
+            result,
+            allow_user_chats,
+            allow_bot_chats,
+            allow_group_chats,
+            allow_channel_chats
+        )
     }
 
     // ─── Suggested Posts (Bot API 9.6+) ───

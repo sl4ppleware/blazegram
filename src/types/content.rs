@@ -46,7 +46,7 @@ impl ContentType {
     /// Can we edit from self → target without delete+send?
     #[must_use]
     pub fn can_edit_to(&self, target: &ContentType) -> bool {
-        use ContentType::*;
+        use ContentType::{Animation, Document, Photo, Text, Video};
         match (self, target) {
             (Text, Text) => true,
             // Media ↔ Media via editMessageMedia

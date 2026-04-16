@@ -55,9 +55,15 @@ impl std::fmt::Debug for RateLimiterMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RateLimiterMetrics")
             .field("total_calls", &self.total_calls.load(Ordering::Relaxed))
-            .field("throttled_calls", &self.throttled_calls.load(Ordering::Relaxed))
+            .field(
+                "throttled_calls",
+                &self.throttled_calls.load(Ordering::Relaxed),
+            )
             .field("flood_waits", &self.flood_waits.load(Ordering::Relaxed))
-            .field("current_window_count", &self.current_window_count.load(Ordering::Relaxed))
+            .field(
+                "current_window_count",
+                &self.current_window_count.load(Ordering::Relaxed),
+            )
             .field("effective_rps", &self.effective_rps.load(Ordering::Relaxed))
             .finish()
     }
@@ -307,10 +313,15 @@ impl<B: BotApi> RateLimitedBotApi<B> {
     pub fn gc_idle_buckets(&self) {
         let cutoff = Duration::from_secs(600);
         let before = self.chat_buckets.len();
-        self.chat_buckets.retain(|_, bucket| bucket.last_refill.elapsed() < cutoff);
+        self.chat_buckets
+            .retain(|_, bucket| bucket.last_refill.elapsed() < cutoff);
         let evicted = before - self.chat_buckets.len();
         if evicted > 0 {
-            tracing::debug!(evicted, remaining = self.chat_buckets.len(), "rate limiter: gc idle chat buckets");
+            tracing::debug!(
+                evicted,
+                remaining = self.chat_buckets.len(),
+                "rate limiter: gc idle chat buckets"
+            );
         }
     }
 
