@@ -1,54 +1,69 @@
 # Changelog
 
-## [0.4.2] — 2026-03-14
+## [0.4.2] — 2026-04-16
 
 ### Added
 
-- **State error handling**: `StateStore` trait methods now return `Result` instead of
-  silently swallowing errors. `InMemoryStore`, `RedbStore`, and `RedisStore` all updated.
-  `ChatSerializer` logs errors on load (falls back to fresh state) and save.
-  New `HandlerError::State` variant for state-related failures.
+- **BotApi: 130+ new methods** — full Telegram Bot API 9.6 coverage:
+  - Convenience media senders (`send_photo`, `send_audio`, `send_document`, `send_video`,
+    `send_animation`, `send_voice`, `send_video_note`)
+  - Paid media, live location, checklists, message drafts
+  - Stories (`post_story`, `edit_story`, `delete_story`)
+  - Emoji status, user/chat verification
+  - Business account management (name, username, bio, photos, gifts, star balance, transfers)
+  - Gift operations (send, premium subscription, convert, upgrade, transfer)
+  - Sticker set management (get, create, add, replace, delete, set emoji/keywords/mask/title/thumbnail)
+  - Game operations (send, set score, get high scores)
+  - Inline message operations (`answer_web_app_query`, `save_prepared_inline_message`)
+  - Managed bot tokens, prepared keyboard, passport data errors
+  - Chat member tags, sender chat ban/unban, subscription invite links
+  - Default admin rights, profile photo management
+  - General forum topic operations, `log_out`, `close`
+- **Types**: `PaidMediaInput`, `ChecklistItem`, `LiveLocationOptions`, `StoryContent`,
+  `StoryAreas`, `InputSticker`, `MaskPosition`, `PreparedInlineMessage`, `SentWebAppMessage`,
+  `GameHighScore`, `PassportElementError`, `AcceptedGiftTypes`, `OwnedGift`, `Gift`,
+  `BusinessConnection`, and more.
+- **MockBotApi**: stubs for all new methods.
+- **Router groups**: `RouterGroup` for organizing handlers into modules with per-group middleware.
+- **Scheduler**: `SchedulerHandle` for delayed actions — auto-delete messages and fire
+  synthetic callbacks. `ctx.delete_later()`, `ctx.schedule_callback()`, `notify_temp()`.
+- **Conversation system**: branching multi-step dialogues with `Conversation::builder()`.
+  Conditional branching, unconditional jumps, end markers, custom validators, cancel handling.
+- **`ctx.edit_last()`**: edit last bot message without running the differ.
+- **State error handling**: `StateStore` methods return `Result`. New `HandlerError::State`.
+- **TestApp**: `assert_screen()`, `assert_sent_text()`, `assert_sent_count()`,
+  `assert_no_messages()`, `fire_scheduled_callback()`, media/payment/member event simulation.
+- **Examples**: `admin_bot.rs`, `scheduled_bot.rs`, `conversation_bot.rs`.
 
-- **`ctx.edit_last()`**: Edit the last bot message in place without running the differ.
-  Lighter than `navigate()` — no diff, no delete, just one edit call.
+### Fixed
 
-- **Router groups**: `RouterGroup` allows organizing handlers into logical modules with
-  per-group middleware. Groups are checked before the main router. Added `Router::group()`
-  and `AppBuilder::group()`.
-
-- **Scheduler**: `SchedulerHandle` for time-delayed actions — auto-delete messages and
-  fire synthetic callbacks after a duration. `ctx.delete_later()` and
-  `ctx.schedule_callback()` methods. `notify_temp()` now uses the scheduler when available.
-  Scheduled callbacks are routed through the normal callback pipeline.
-
-- **Conversation system**: Branching multi-step dialogues with `Conversation::builder()`.
-  Supports sequential steps, conditional branching (`branch()`), unconditional jumps
-  (`goto()`), end markers (`end_at()`), custom input validators per step, and cancel
-  handling. Dispatched before forms in the update pipeline. `ctx.start_conversation()`.
-
-- **TestApp assertions**: `assert_screen()`, `assert_sent_text()`, `assert_sent_count()`,
-  `assert_no_messages()`, `assert_deleted()`, `current_screen()`, `fire_scheduled_callback()`.
-
-- **Observability**: `process_update` tracing span now includes `user_id` field.
-
-- **Examples**: 3 new examples:
-  - `admin_bot.rs` — router groups with auth middleware
-  - `scheduled_bot.rs` — scheduled messages & callbacks
-  - `conversation_bot.rs` — branching conversations
-
-- **Prelude**: Added `Conversation`, `ConversationBuilder`, `ConversationData`, `FormData`,
-  `RouterGroup`, `SchedulerHandle` to prelude.
+- **rate_limiter**: replace 10ms busy-loop with `Notify`-based wake in `GlobalLimiter`.
+  Remove dead `Semaphore` (created but never used for backpressure).
+- **rate_limiter**: unify `effective_rps` into single `Arc<AtomicU32>` shared between
+  `GlobalLimiter` and `RateLimiterMetrics` — fixes metrics desync race.
+- **rate_limiter**: add `gc_idle_buckets()` — evict per-chat token buckets idle >10 min.
+  Previously `DashMap<i64, ChatBucket>` grew unbounded (memory leak).
+- **serializer**: fix potential deadlock in `gc()` — `DashMap::retain` holds shard lock
+  conflicting with concurrent `serialize()` calls. Now two-phase: collect then `remove_if`.
+- **app**: fix double push to `pending_user_messages` when form/conversation cancels via
+  /command and falls through to router. Form/conv now push only for messages they handle.
+- **executor**: chunk `deleteMessages` into batches of 100 (Telegram API limit).
+- **differ**: use `HashSet<MessageId>` for `frozen_messages` lookup (was O(n) per message).
+- **ctx**: `navigate_group` now tracks sent message in `active_bot_messages` when sending
+  new (no trigger). Previously lost, causing stale messages on subsequent navigate.
+- **ctx**: `reply()` now updates `TrackedMessage` hash after edit, preventing unnecessary
+  edits on next `navigate()`.
+- **broadcast**: `add_dismiss_button` now supports Video, Animation, Document (was Text/Photo only).
+- **update_parser**: parse all media types (voice, video note, sticker, contact, location),
+  service messages (member joined/left), payment messages.
+- **rate_limiter**: proxy all BotApi methods (was 30 missing, returning "not implemented").
 
 ### Changed
 
-- `StateStore::load()` returns `Result<Option<ChatState>, String>` (was `Option<ChatState>`).
-- `StateStore::save()` returns `Result<(), String>` (was `()`).
-- `StateStore::delete()` returns `Result<(), String>` (was `()`).
-- `StateStore::all_chat_ids()` returns `Result<Vec<ChatId>, String>` (was `Vec<ChatId>`).
-- `RedbStore`: all methods now propagate errors instead of `let _ =` or `.ok()`.
-- `RedisStore`: all methods now propagate errors instead of silent drops.
-- `ChatSerializer::serialize()`: handles load/save Results with proper tracing.
-- `broadcast()`: handles `all_chat_ids()` Result.
+- `cargo fmt` + `cargo clippy` clean.
+- `StateStore` methods return `Result` (breaking change from 0.4.1 internals).
+- Markup: simplified `read_until_double` — flattened nested if/else.
+- Conversation handlers: removed redundant else blocks.
 
 ## [0.4.1] — 2026-03-12
 
