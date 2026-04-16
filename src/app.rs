@@ -463,13 +463,19 @@ impl AppBuilder {
                 }
             }
         }
-        let bot_api: Arc<dyn BotApi> = if let Some(rps) = self.rate_limit_rps {
-            Arc::new(crate::rate_limiter::RateLimitedBotApi::new(
+        // Build adapter + optional rate limiter.
+        // Keep typed Arc for GC if rate limiting is enabled.
+        let (bot_api, rate_limiter_ref): (
+            Arc<dyn BotApi>,
+            Option<Arc<crate::rate_limiter::RateLimitedBotApi<_>>>,
+        ) = if let Some(rps) = self.rate_limit_rps {
+            let rl = Arc::new(crate::rate_limiter::RateLimitedBotApi::new(
                 adapter.clone(),
                 rps,
-            ))
+            ));
+            (rl.clone() as Arc<dyn BotApi>, Some(rl))
         } else {
-            Arc::new(adapter.clone())
+            (Arc::new(adapter.clone()) as Arc<dyn BotApi>, None)
         };
 
         // ── Session flush task (persist auth keys + update state every 30s) ──
@@ -477,11 +483,15 @@ impl AppBuilder {
 
         // ── GC task ──
         let gc_ser = serializer.clone();
+        let gc_rl = rate_limiter_ref.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
             loop {
                 interval.tick().await;
                 gc_ser.gc();
+                if let Some(ref rl) = gc_rl {
+                    rl.gc_idle_buckets();
+                }
             }
         });
 

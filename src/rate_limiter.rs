@@ -302,6 +302,18 @@ impl<B: BotApi> RateLimitedBotApi<B> {
         &self.metrics
     }
 
+    /// Evict per-chat buckets idle for more than 10 minutes.
+    /// Call periodically (e.g. from the GC task) to prevent unbounded growth.
+    pub fn gc_idle_buckets(&self) {
+        let cutoff = Duration::from_secs(600);
+        let before = self.chat_buckets.len();
+        self.chat_buckets.retain(|_, bucket| bucket.last_refill.elapsed() < cutoff);
+        let evicted = before - self.chat_buckets.len();
+        if evicted > 0 {
+            tracing::debug!(evicted, remaining = self.chat_buckets.len(), "rate limiter: gc idle chat buckets");
+        }
+    }
+
     /// Get or create a per-chat bucket.
     fn get_chat_bucket(
         &self,
@@ -744,5 +756,29 @@ mod tests {
             bucket.relax();
         }
         assert_eq!(bucket.interval_ms, orig_interval);
+    }
+
+    #[tokio::test]
+    async fn test_gc_idle_buckets() {
+        let limiter = RateLimitedBotApi::new(MockBotApi::new(), 30);
+
+        // Create some buckets.
+        {
+            let _ = limiter.get_chat_bucket(ChatId(1));
+            let _ = limiter.get_chat_bucket(ChatId(2));
+            let _ = limiter.get_chat_bucket(ChatId(3));
+        }
+        assert_eq!(limiter.chat_buckets.len(), 3);
+
+        // GC with fresh buckets should keep all (last_refill is recent).
+        limiter.gc_idle_buckets();
+        assert_eq!(limiter.chat_buckets.len(), 3);
+
+        // Manually age one bucket.
+        limiter.chat_buckets.get_mut(&2).unwrap().last_refill =
+            Instant::now() - Duration::from_secs(700);
+        limiter.gc_idle_buckets();
+        assert_eq!(limiter.chat_buckets.len(), 2);
+        assert!(!limiter.chat_buckets.contains_key(&2));
     }
 }
