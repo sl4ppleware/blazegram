@@ -112,12 +112,63 @@ impl_mock_botapi! {
         fn delete_forum_topic(chat_id: ChatId, topic_id: i32);
         fn unpin_all_forum_topic_messages(chat_id: ChatId, topic_id: i32);
         fn refund_star_payment(user_id: UserId, charge_id: &str);
+        fn edit_message_live_location(chat_id: ChatId, message_id: MessageId, latitude: f64, longitude: f64);
+        fn stop_message_live_location(chat_id: ChatId, message_id: MessageId);
+        fn edit_message_checklist(chat_id: ChatId, message_id: MessageId, title: String, items: Vec<ChecklistItem>);
+        fn send_message_draft(chat_id: ChatId, text: String, parse_mode: ParseMode);
+        fn set_user_emoji_status(user_id: UserId, emoji_status_custom_emoji_id: Option<String>, emoji_status_expiration_date: Option<i64>);
+        fn log_out();
+        fn close();
         fn restrict_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions);
         fn promote_chat_member(chat_id: ChatId, user_id: UserId, permissions: ChatPermissions);
         fn set_chat_permissions(chat_id: ChatId, permissions: ChatPermissions);
         fn unpin_all_chat_messages(chat_id: ChatId);
         fn stop_poll(chat_id: ChatId, message_id: MessageId);
         fn set_chat_photo(chat_id: ChatId, photo: FileSource);
+        fn ban_chat_sender_chat(chat_id: ChatId, sender_chat_id: ChatId);
+        fn unban_chat_sender_chat(chat_id: ChatId, sender_chat_id: ChatId);
+        fn set_chat_member_tag(chat_id: ChatId, user_id: UserId, tag: Option<String>);
+        fn verify_user(user_id: UserId, custom_description: Option<String>);
+        fn verify_chat(chat_id: ChatId, custom_description: Option<String>);
+        fn remove_user_verification(user_id: UserId);
+        fn remove_chat_verification(chat_id: ChatId);
+        fn read_business_message(business_connection_id: &str, chat_id: ChatId, message_id: MessageId);
+        fn delete_business_messages(business_connection_id: &str, message_ids: Vec<MessageId>);
+        fn set_business_account_name(business_connection_id: &str, first_name: &str, last_name: Option<&str>);
+        fn set_business_account_username(business_connection_id: &str, username: Option<&str>);
+        fn set_business_account_bio(business_connection_id: &str, bio: Option<&str>);
+        fn set_business_account_profile_photo(business_connection_id: &str, photo: FileSource, is_public: Option<bool>);
+        fn remove_business_account_profile_photo(business_connection_id: &str, is_public: Option<bool>);
+        fn set_business_account_gift_settings(business_connection_id: &str, show_gift_button: bool, accepted_gift_types: AcceptedGiftTypes);
+        fn transfer_business_account_stars(business_connection_id: &str, star_count: i64);
+        fn send_gift(user_id: UserId, gift_id: String, text: Option<String>, text_parse_mode: Option<ParseMode>);
+        fn gift_premium_subscription(user_id: UserId, month_count: i32, star_count: i64, text: Option<String>, text_parse_mode: Option<ParseMode>);
+        fn convert_gift_to_stars(business_connection_id: Option<&str>, owned_gift_id: &str);
+        fn upgrade_gift(business_connection_id: Option<&str>, owned_gift_id: &str, keep_original_details: Option<bool>, star_count: Option<i64>);
+        fn transfer_gift(business_connection_id: Option<&str>, owned_gift_id: &str, new_owner_chat_id: ChatId, star_count: Option<i64>);
+        fn delete_story(chat_id: ChatId, story_id: i32);
+        fn edit_user_star_subscription(user_id: UserId, telegram_payment_charge_id: &str, is_canceled: bool);
+        fn set_my_default_administrator_rights(rights: Option<ChatPermissions>, for_channels: Option<bool>);
+        fn set_my_profile_photo(photo: FileSource, is_public: Option<bool>);
+        fn remove_my_profile_photo(file_id: Option<String>);
+        fn set_sticker_position_in_set(sticker: &str, position: i32);
+        fn delete_sticker_from_set(sticker: &str);
+        fn replace_sticker_in_set(user_id: UserId, name: &str, old_sticker: &str, sticker: InputSticker);
+        fn set_sticker_emoji_list(sticker: &str, emoji_list: Vec<String>);
+        fn set_sticker_keywords(sticker: &str, keywords: Vec<String>);
+        fn set_sticker_mask_position(sticker: &str, mask_position: Option<MaskPosition>);
+        fn set_sticker_set_title(name: &str, title: &str);
+        fn set_sticker_set_thumbnail(name: &str, user_id: UserId, thumbnail: Option<FileSource>, format: StickerFormat);
+        fn set_custom_emoji_sticker_set_thumbnail(name: &str, custom_emoji_id: Option<String>);
+        fn delete_sticker_set(name: &str);
+        fn create_new_sticker_set(user_id: UserId, name: String, title: String, stickers: Vec<InputSticker>, sticker_type: Option<StickerType>);
+        fn add_sticker_to_set(user_id: UserId, name: &str, sticker: InputSticker);
+        fn set_chat_sticker_set(chat_id: ChatId, sticker_set_name: &str);
+        fn delete_chat_sticker_set(chat_id: ChatId);
+        fn set_game_score(user_id: UserId, score: i64, chat_id: ChatId, message_id: MessageId, force: bool, disable_edit_message: bool);
+        fn approve_suggested_post(chat_id: ChatId, message_id: MessageId);
+        fn decline_suggested_post(chat_id: ChatId, message_id: MessageId);
+        fn set_passport_data_errors(user_id: UserId, errors: Vec<PassportElementError>);
     ]
     ok_sent: [
         fn send_poll(chat_id: ChatId, poll: SendPoll);
@@ -127,6 +178,10 @@ impl_mock_botapi! {
         fn send_invoice(chat_id: ChatId, invoice: Invoice);
         fn send_sticker(chat_id: ChatId, sticker: FileSource);
         fn send_location(chat_id: ChatId, latitude: f64, longitude: f64);
+        fn send_paid_media(chat_id: ChatId, star_count: i64, media: Vec<PaidMediaInput>, caption: Option<String>, parse_mode: ParseMode, opts: SendOptions);
+        fn send_live_location(chat_id: ChatId, latitude: f64, longitude: f64, live_period: i32, opts: SendOptions);
+        fn send_checklist(chat_id: ChatId, title: String, items: Vec<ChecklistItem>, opts: SendOptions);
+        fn send_game(chat_id: ChatId, game_short_name: &str, opts: SendOptions);
     ]
     manual: {
         async fn send_message(
@@ -413,6 +468,262 @@ impl_mock_botapi! {
 
         async fn export_chat_invite_link(&self, _chat_id: ChatId) -> Result<String, ApiError> {
             Ok("https://t.me/+mock_export_link".to_string())
+        }
+
+        async fn get_user_profile_audios(
+            &self,
+            _user_id: UserId,
+            _offset: Option<i32>,
+            _limit: Option<i32>,
+        ) -> Result<UserProfileAudios, ApiError> {
+            Ok(UserProfileAudios {
+                total_count: 0,
+                audios: vec![],
+            })
+        }
+
+        async fn edit_chat_invite_link(
+            &self,
+            _chat_id: ChatId,
+            link: &str,
+            name: Option<&str>,
+            _expire_date: Option<i64>,
+            _member_limit: Option<i32>,
+        ) -> Result<ChatInviteLink, ApiError> {
+            Ok(ChatInviteLink {
+                invite_link: link.to_string(),
+                creator: None,
+                creates_join_request: false,
+                is_primary: false,
+                is_revoked: false,
+                name: name.map(|s| s.to_string()),
+                expire_date: None,
+                member_limit: None,
+                pending_join_request_count: None,
+            })
+        }
+
+        async fn create_chat_subscription_invite_link(
+            &self,
+            _chat_id: ChatId,
+            name: Option<&str>,
+            _subscription_period: i32,
+            _subscription_price: i64,
+        ) -> Result<ChatInviteLink, ApiError> {
+            Ok(ChatInviteLink {
+                invite_link: "https://t.me/+mock_sub_link".to_string(),
+                creator: None,
+                creates_join_request: false,
+                is_primary: false,
+                is_revoked: false,
+                name: name.map(|s| s.to_string()),
+                expire_date: None,
+                member_limit: None,
+                pending_join_request_count: None,
+            })
+        }
+
+        async fn edit_chat_subscription_invite_link(
+            &self,
+            _chat_id: ChatId,
+            link: &str,
+            name: Option<&str>,
+        ) -> Result<ChatInviteLink, ApiError> {
+            Ok(ChatInviteLink {
+                invite_link: link.to_string(),
+                creator: None,
+                creates_join_request: false,
+                is_primary: false,
+                is_revoked: false,
+                name: name.map(|s| s.to_string()),
+                expire_date: None,
+                member_limit: None,
+                pending_join_request_count: None,
+            })
+        }
+
+        async fn get_user_chat_boosts(
+            &self,
+            _chat_id: ChatId,
+            _user_id: UserId,
+        ) -> Result<UserChatBoosts, ApiError> {
+            Ok(UserChatBoosts { boosts: vec![] })
+        }
+
+        async fn get_my_default_administrator_rights(
+            &self,
+            _for_channels: Option<bool>,
+        ) -> Result<ChatPermissions, ApiError> {
+            Ok(ChatPermissions::default())
+        }
+
+        async fn get_business_connection(
+            &self,
+            id: &str,
+        ) -> Result<BusinessConnection, ApiError> {
+            Ok(BusinessConnection {
+                id: id.to_string(),
+                user: UserInfo {
+                    id: UserId(1),
+                    first_name: "Mock".to_string(),
+                    last_name: None,
+                    username: None,
+                    language_code: None,
+                },
+                user_chat_id: ChatId(1),
+                date: 0,
+                can_reply: true,
+                is_enabled: true,
+            })
+        }
+
+        async fn get_business_account_star_balance(
+            &self,
+            _business_connection_id: &str,
+        ) -> Result<StarBalance, ApiError> {
+            Ok(StarBalance { amount: 100, nanos: 0 })
+        }
+
+        async fn get_business_account_gifts(
+            &self,
+            _business_connection_id: &str,
+            _exclude_unsaved: Option<bool>,
+            _exclude_saved: Option<bool>,
+            _exclude_unlimited: Option<bool>,
+            _exclude_limited: Option<bool>,
+            _exclude_unique: Option<bool>,
+            _sort_by_price: Option<bool>,
+            _offset: Option<&str>,
+            _limit: Option<i32>,
+        ) -> Result<OwnedGifts, ApiError> {
+            Ok(OwnedGifts { total_count: 0, gifts: vec![], next_offset: None })
+        }
+
+        async fn get_available_gifts(&self) -> Result<Vec<Gift>, ApiError> {
+            Ok(vec![])
+        }
+
+        async fn get_user_gifts(
+            &self,
+            _user_id: UserId,
+            _offset: Option<&str>,
+            _limit: Option<i32>,
+        ) -> Result<OwnedGifts, ApiError> {
+            Ok(OwnedGifts { total_count: 0, gifts: vec![], next_offset: None })
+        }
+
+        async fn get_chat_gifts(
+            &self,
+            _chat_id: ChatId,
+            _offset: Option<&str>,
+            _limit: Option<i32>,
+        ) -> Result<OwnedGifts, ApiError> {
+            Ok(OwnedGifts { total_count: 0, gifts: vec![], next_offset: None })
+        }
+
+        async fn post_story(
+            &self,
+            chat_id: ChatId,
+            _content: StoryContent,
+            _active_period: i32,
+            _caption: Option<String>,
+            _parse_mode: Option<ParseMode>,
+        ) -> Result<Story, ApiError> {
+            Ok(Story { id: self.next_id(), chat_id, date: 0 })
+        }
+
+        async fn edit_story(
+            &self,
+            chat_id: ChatId,
+            story_id: i32,
+            _content: Option<StoryContent>,
+            _caption: Option<String>,
+            _parse_mode: Option<ParseMode>,
+        ) -> Result<Story, ApiError> {
+            Ok(Story { id: story_id, chat_id, date: 0 })
+        }
+
+        async fn get_my_star_balance(&self) -> Result<StarBalance, ApiError> {
+            Ok(StarBalance { amount: 1000, nanos: 0 })
+        }
+
+        async fn get_managed_bot_token(&self, _bot_id: UserId) -> Result<String, ApiError> {
+            Ok("mock_token_123".to_string())
+        }
+
+        async fn replace_managed_bot_token(&self, _bot_id: UserId) -> Result<String, ApiError> {
+            Ok("mock_new_token_456".to_string())
+        }
+
+        async fn save_prepared_keyboard_button(
+            &self,
+            _user_id: UserId,
+            _button: PreparedKeyboardButtonData,
+        ) -> Result<PreparedKeyboardButton, ApiError> {
+            Ok(PreparedKeyboardButton { id: "pkb_1".to_string(), expiration_date: 9999999999 })
+        }
+
+        async fn get_sticker_set(&self, name: &str) -> Result<StickerSet, ApiError> {
+            Ok(StickerSet {
+                name: name.to_string(),
+                title: "Mock Set".to_string(),
+                sticker_type: StickerType::Regular,
+                stickers: vec![],
+            })
+        }
+
+        async fn get_custom_emoji_stickers(&self, _ids: Vec<String>) -> Result<Vec<StickerInfo>, ApiError> {
+            Ok(vec![])
+        }
+
+        async fn upload_sticker_file(
+            &self,
+            _user_id: UserId,
+            _sticker: FileSource,
+            _format: StickerFormat,
+        ) -> Result<TelegramFile, ApiError> {
+            Ok(TelegramFile {
+                file_id: "mock_file_id".to_string(),
+                file_unique_id: "mock_unique".to_string(),
+                file_size: Some(1024),
+                file_path: Some("stickers/mock.webp".to_string()),
+            })
+        }
+
+        async fn get_forum_topic_icon_stickers(&self) -> Result<Vec<StickerInfo>, ApiError> {
+            Ok(vec![])
+        }
+
+        async fn get_game_high_scores(
+            &self,
+            _user_id: UserId,
+            _chat_id: ChatId,
+            _message_id: MessageId,
+        ) -> Result<Vec<GameHighScore>, ApiError> {
+            Ok(vec![])
+        }
+
+        async fn answer_web_app_query(
+            &self,
+            _web_app_query_id: &str,
+            _result: InlineQueryResult,
+        ) -> Result<SentWebAppMessage, ApiError> {
+            Ok(SentWebAppMessage { inline_message_id: Some("mock_inline_msg".to_string()) })
+        }
+
+        async fn save_prepared_inline_message(
+            &self,
+            _user_id: UserId,
+            _result: InlineQueryResult,
+            _allow_user_chats: Option<bool>,
+            _allow_bot_chats: Option<bool>,
+            _allow_group_chats: Option<bool>,
+            _allow_channel_chats: Option<bool>,
+        ) -> Result<PreparedInlineMessage, ApiError> {
+            Ok(PreparedInlineMessage {
+                id: "mock_prepared_1".to_string(),
+                expiration_date: 9999999999,
+            })
         }
     }
 }

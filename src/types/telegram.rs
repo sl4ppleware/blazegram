@@ -522,3 +522,498 @@ pub struct StarTransactions {
     /// Offset for the next page, or `None` if there are no more.
     pub next_offset: Option<String>,
 }
+
+// ─── Paid Media ───
+
+/// A single media item for paid media messages (Telegram Stars).
+///
+/// Used with [`BotApi::send_paid_media`](crate::bot_api::BotApi::send_paid_media).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PaidMediaInput {
+    /// A photo to be sent as paid media.
+    Photo {
+        /// Photo source (file ID, URL, local path, or raw bytes).
+        source: FileSource,
+    },
+    /// A video to be sent as paid media.
+    Video {
+        /// Video source.
+        source: FileSource,
+        /// Duration of the video in seconds.
+        duration: Option<i32>,
+        /// Video width.
+        width: Option<i32>,
+        /// Video height.
+        height: Option<i32>,
+        /// Whether the video needs to support streaming.
+        supports_streaming: Option<bool>,
+    },
+}
+
+// ─── Checklist (Bot API 9.5+) ───
+
+/// An item in a checklist message (Bot API 9.5+).
+///
+/// Used with [`BotApi::send_checklist`](crate::bot_api::BotApi::send_checklist)
+/// and [`BotApi::edit_message_checklist`](crate::bot_api::BotApi::edit_message_checklist).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    /// The text of the checklist item.
+    pub text: String,
+    /// Whether this item is checked / completed.
+    pub checked: bool,
+}
+
+// ─── User Profile Audios (Bot API 9.4+) ───
+
+/// Response from [`BotApi::get_user_profile_audios`](crate::bot_api::BotApi::get_user_profile_audios).
+///
+/// Contains audio files set as the user's profile audio.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserProfileAudios {
+    /// Total number of profile audios the user has.
+    pub total_count: i32,
+    /// Requested audio file IDs.
+    pub audios: Vec<String>,
+}
+
+// ─── Business ───
+
+/// Describes a connection of the bot with a business account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessConnection {
+    /// Unique identifier of the business connection.
+    pub id: String,
+    /// Business account user.
+    pub user: UserInfo,
+    /// Identifier of a private chat with the user.
+    pub user_chat_id: super::ChatId,
+    /// Date the connection was established, Unix time.
+    pub date: i64,
+    /// Whether the bot can act on behalf of the business account in chats.
+    pub can_reply: bool,
+    /// Whether the connection is active.
+    pub is_enabled: bool,
+}
+
+/// Describes the types of gifts accepted by a business account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcceptedGiftTypes {
+    /// Whether unlimited regular gifts are accepted.
+    pub unlimited_gifts: bool,
+    /// Whether limited regular gifts are accepted.
+    pub limited_gifts: bool,
+    /// Whether unique gifts are accepted.
+    pub unique_gifts: bool,
+    /// Whether premium subscriptions are accepted.
+    pub premium_subscription: bool,
+}
+
+// ─── Gifts ───
+
+/// Represents a gift that can be sent by the bot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Gift {
+    /// Unique identifier of the gift.
+    pub id: String,
+    /// The sticker that represents the gift.
+    pub sticker_file_id: String,
+    /// The number of Stars that must be paid to send the gift.
+    pub star_count: i64,
+    /// The total number of gifts of this type that can be sent (for limited gifts).
+    pub total_count: Option<i64>,
+    /// The number of remaining gifts of this type (for limited gifts).
+    pub remaining_count: Option<i64>,
+}
+
+/// Represents a gift owned by a user or chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnedGift {
+    /// The gift ID.
+    pub gift_id: String,
+    /// Unique identifier of this owned gift instance.
+    pub owned_gift_id: String,
+    /// Sender user info, if not anonymous.
+    pub sender_user: Option<UserInfo>,
+    /// Text message attached to the gift.
+    pub text: Option<String>,
+    /// Whether the gift is saved (displayed on profile).
+    pub is_saved: bool,
+    /// Whether the gift is sold (converted to Stars).
+    pub is_sold: bool,
+    /// Number of Stars that can be received by converting the gift.
+    pub convert_star_count: Option<i64>,
+    /// Number of Stars that can be received by upgrading the gift.
+    pub upgrade_star_count: Option<i64>,
+    /// Date the gift was sent, Unix time.
+    pub date: i64,
+}
+
+/// Response containing a list of owned gifts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnedGifts {
+    /// Total number of gifts owned by the entity.
+    pub total_count: i32,
+    /// The list of gifts.
+    pub gifts: Vec<OwnedGift>,
+    /// Offset for the next request, or `None` if there are no more.
+    pub next_offset: Option<String>,
+}
+
+// ─── Stories ───
+
+/// Content of a story to be posted.
+#[derive(Debug, Clone)]
+pub enum StoryContent {
+    /// A photo story.
+    Photo {
+        /// Photo source.
+        photo: FileSource,
+    },
+    /// A video story.
+    Video {
+        /// Video source.
+        video: FileSource,
+        /// Duration in seconds.
+        duration: Option<f64>,
+    },
+}
+
+/// A posted story.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Story {
+    /// Unique identifier of the story in the chat.
+    pub id: i32,
+    /// Chat that posted the story.
+    pub chat_id: super::ChatId,
+    /// Date the story was posted, Unix time.
+    pub date: i64,
+}
+
+// ─── User Chat Boosts ───
+
+/// Represents boosts applied by a user to a chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserChatBoosts {
+    /// The list of boosts applied by the user to the chat.
+    pub boosts: Vec<ChatBoost>,
+}
+
+/// A single chat boost.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatBoost {
+    /// Unique identifier of the boost.
+    pub boost_id: String,
+    /// Point in time (Unix timestamp) when the chat was boosted.
+    pub add_date: i64,
+    /// Point in time (Unix timestamp) when the boost will expire.
+    pub expiration_date: i64,
+    /// Source of the boost.
+    pub source: ChatBoostSource,
+}
+
+/// Source of a chat boost.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChatBoostSource {
+    /// Boost from a Telegram Premium subscription.
+    Premium {
+        /// The user who boosted.
+        user: UserInfo,
+    },
+    /// Boost from a gifted Premium subscription.
+    GiftCode {
+        /// The user who boosted.
+        user: UserInfo,
+    },
+    /// Boost from a giveaway.
+    Giveaway {
+        /// The giveaway message ID.
+        giveaway_message_id: Option<i32>,
+        /// The user, if known.
+        user: Option<UserInfo>,
+        /// Whether the boost was unclaimed.
+        is_unclaimed: bool,
+    },
+}
+
+// ─── Prepared Keyboard Button ───
+
+/// Data for a keyboard button to be prepared.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedKeyboardButtonData {
+    /// The type of button.
+    pub button_type: PreparedKeyboardButtonType,
+}
+
+/// Type of prepared keyboard button.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PreparedKeyboardButtonType {
+    /// Request users.
+    RequestUsers {
+        /// Identifier of the request.
+        request_id: i32,
+        /// Whether the user must be a bot.
+        user_is_bot: Option<bool>,
+        /// Whether the user must be a Premium user.
+        user_is_premium: Option<bool>,
+        /// Maximum number of users to select.
+        max_quantity: Option<i32>,
+    },
+    /// Request a chat.
+    RequestChat {
+        /// Identifier of the request.
+        request_id: i32,
+        /// Whether the chat must be a channel.
+        chat_is_channel: bool,
+    },
+}
+
+/// A prepared keyboard button stored by Telegram.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedKeyboardButton {
+    /// Unique identifier of the prepared button.
+    pub id: String,
+    /// Expiration date, Unix time. The button can be used until this date.
+    pub expiration_date: i64,
+}
+
+// ─── Sticker Types ───
+
+/// Format of a sticker (static, animated, or video).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StickerFormat {
+    /// PNG image (`image/png`).
+    Static,
+    /// TGS animation (`application/x-tgsticker`).
+    Animated,
+    /// WEBM video (`video/webm`).
+    Video,
+}
+
+/// Type of a sticker set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StickerType {
+    /// Normal stickers.
+    Regular,
+    /// Mask stickers that overlay on photos.
+    Mask,
+    /// Custom emoji stickers usable in messages.
+    CustomEmoji,
+}
+
+/// Position on a face for mask stickers.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MaskPosition {
+    /// Part of the face.
+    pub point: MaskPoint,
+    /// Shift by X-axis measured in widths of the mask scaled to the face size (−1.0 to 1.0).
+    pub x_shift: f64,
+    /// Shift by Y-axis measured in heights of the mask scaled to the face size (−1.0 to 1.0).
+    pub y_shift: f64,
+    /// Mask scaling coefficient (0.0–2.0).
+    pub scale: f64,
+}
+
+/// Face part for [`MaskPosition`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MaskPoint {
+    /// Forehead area.
+    Forehead,
+    /// Eyes area.
+    Eyes,
+    /// Mouth area.
+    Mouth,
+    /// Chin area.
+    Chin,
+}
+
+/// Info about an individual sticker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StickerInfo {
+    /// Unique file identifier.
+    pub file_id: String,
+    /// Unique file identifier (stable across re-uploads).
+    pub file_unique_id: String,
+    /// Sticker type.
+    pub sticker_type: StickerType,
+    /// Sticker width.
+    pub width: i32,
+    /// Sticker height.
+    pub height: i32,
+    /// Whether the sticker is animated (TGS).
+    pub is_animated: bool,
+    /// Whether the sticker is a video (WEBM).
+    pub is_video: bool,
+    /// Emoji associated with this sticker.
+    pub emoji: Option<String>,
+    /// Name of the sticker set this belongs to.
+    pub set_name: Option<String>,
+    /// Mask position data (for mask stickers).
+    pub mask_position: Option<MaskPosition>,
+    /// Custom emoji identifier (for custom_emoji stickers).
+    pub custom_emoji_id: Option<String>,
+    /// File size in bytes.
+    pub file_size: Option<i64>,
+}
+
+/// A sticker set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StickerSet {
+    /// Sticker set name (used in URLs: `t.me/addstickers/<name>`).
+    pub name: String,
+    /// Human-readable title.
+    pub title: String,
+    /// Type of sticker set.
+    pub sticker_type: StickerType,
+    /// List of stickers in the set.
+    pub stickers: Vec<StickerInfo>,
+}
+
+/// A sticker to be added to a sticker set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputSticker {
+    /// The sticker file.
+    pub sticker: FileSource,
+    /// Format of the sticker.
+    pub format: StickerFormat,
+    /// List of 1–20 emoji associated with the sticker.
+    pub emoji_list: Vec<String>,
+    /// Position for mask stickers.
+    pub mask_position: Option<MaskPosition>,
+    /// List of 0–20 search keywords (regular and custom emoji stickers only).
+    pub keywords: Vec<String>,
+}
+
+/// A file stored on the Telegram servers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramFile {
+    /// Unique file identifier.
+    pub file_id: String,
+    /// Unique file identifier (stable across re-uploads).
+    pub file_unique_id: String,
+    /// File size in bytes, if known.
+    pub file_size: Option<i64>,
+    /// File path for downloading via `https://api.telegram.org/file/bot<token>/<file_path>`.
+    pub file_path: Option<String>,
+}
+
+// ─── Game Types ───
+
+/// A row in a game high score table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameHighScore {
+    /// Position in the high score table (1-based).
+    pub position: i32,
+    /// User who achieved the score.
+    pub user: UserInfo,
+    /// Score value.
+    pub score: i64,
+}
+
+// ─── Inline Extras ───
+
+/// Describes an inline message sent by a Web App on behalf of a user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentWebAppMessage {
+    /// Identifier of the sent inline message (available only if there is an inline keyboard).
+    pub inline_message_id: Option<String>,
+}
+
+/// Describes a prepared inline message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedInlineMessage {
+    /// Unique identifier of the prepared message.
+    pub id: String,
+    /// Expiration date of the prepared message (Unix timestamp).
+    pub expiration_date: i64,
+}
+
+// ─── Passport Types ───
+
+/// Represents an error in a Telegram Passport element.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PassportElementError {
+    /// Error in a data field.
+    DataField {
+        /// Section type (e.g. `"personal_details"`, `"passport"`).
+        element_type: String,
+        /// Name of the data field with the error.
+        field_name: String,
+        /// Base64-encoded data hash.
+        data_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in the front side of a document.
+    FrontSide {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hash.
+        file_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in the reverse side of a document.
+    ReverseSide {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hash.
+        file_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in a selfie with a document.
+    Selfie {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hash.
+        file_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in an uploaded file.
+    File {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hash.
+        file_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in multiple uploaded files.
+    Files {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hashes.
+        file_hashes: Vec<String>,
+        /// Error message.
+        message: String,
+    },
+    /// Error in a translation file.
+    TranslationFile {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hash.
+        file_hash: String,
+        /// Error message.
+        message: String,
+    },
+    /// Error in translation files.
+    TranslationFiles {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded file hashes.
+        file_hashes: Vec<String>,
+        /// Error message.
+        message: String,
+    },
+    /// Unspecified issue.
+    Unspecified {
+        /// Section type.
+        element_type: String,
+        /// Base64-encoded element hash.
+        element_hash: String,
+        /// Error message.
+        message: String,
+    },
+}
